@@ -36,6 +36,13 @@ export interface ArrivalVisit {
   status: VisitStatus;
   centerLat: number | null;
   centerLng: number | null;
+  checkInLat: number | null;
+  checkInLng: number | null;
+  checkInAccuracyM: number | null;
+  checkInAt: string | null;
+  checkInDistanceM: number | null;
+  checkInVerified: boolean;
+  checkInOutOfRange: boolean;
 }
 
 type ScanPhase =
@@ -44,6 +51,7 @@ type ScanPhase =
   | { status: "checking" }
   | { status: "locating"; code: string }
   | { status: "result"; code: string; check: QrLocationCheck }
+  | { status: "departed" }
   | { status: "error"; message: string };
 
 interface QrDetector {
@@ -80,6 +88,41 @@ async function registerArrival(
     checkOutDistanceM: null,
     checkOutVerified: false,
     checkOutOutOfRange: false,
+    checkOutNotes: null,
+    notes: null,
+  });
+}
+
+async function registerDeparture(
+  visit: ArrivalVisit,
+  position: GeoPoint & { accuracy: number },
+) {
+  const geofence =
+    visit.centerLat !== null && visit.centerLng !== null
+      ? evaluateGeofence(position, { lat: visit.centerLat, lng: visit.centerLng })
+      : null;
+  const distanceMeters = geofence === null ? null : Math.round(geofence.distanceMeters);
+
+  await enqueueVisit({
+    clientId: visit.clientId,
+    clientCreatedAt: visit.clientCreatedAt,
+    supervisorId: visit.supervisorId,
+    costCenterId: visit.costCenterId,
+    status: "COMPLETED",
+    checkInLat: visit.checkInLat,
+    checkInLng: visit.checkInLng,
+    checkInAccuracyM: visit.checkInAccuracyM,
+    checkInAt: visit.checkInAt,
+    checkInDistanceM: visit.checkInDistanceM,
+    checkInVerified: visit.checkInVerified,
+    checkInOutOfRange: visit.checkInOutOfRange,
+    checkOutLat: position.lat,
+    checkOutLng: position.lng,
+    checkOutAccuracyM: position.accuracy,
+    checkOutAt: new Date().toISOString(),
+    checkOutDistanceM: distanceMeters,
+    checkOutVerified: geofence?.isWithinRadius ?? false,
+    checkOutOutOfRange: geofence?.isOutOfRange ?? false,
     checkOutNotes: null,
     notes: null,
   });
@@ -134,6 +177,7 @@ export function QrScanner({
   const [manualCode, setManualCode] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
   const [pendingCode, setPendingCode] = useState<string | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
     void dropRetiredQrPoints().then(() => {
@@ -278,6 +322,28 @@ export function QrScanner({
     }
   }
 
+  async function leaveVisit() {
+    if (!arrival || arrival.status !== "IN_PROGRESS") {
+      return;
+    }
+
+    setLeaving(true);
+    setPhase({ status: "locating", code: "" });
+
+    try {
+      const position = await readPosition();
+      await registerDeparture(arrival, position);
+      setPhase({ status: "departed" });
+    } catch (error) {
+      setPhase({
+        status: "error",
+        message: error instanceof Error ? error.message : "No se pudo registrar la salida.",
+      });
+    } finally {
+      setLeaving(false);
+    }
+  }
+
   function onManualSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void checkCode(manualCode);
@@ -321,6 +387,33 @@ export function QrScanner({
           </div>
         ) : null}
       </div>
+
+      {arrival?.status === "IN_PROGRESS" && phase.status !== "departed" ? (
+        <Button
+          variant="contrast"
+          className="w-full"
+          disabled={leaving || phase.status === "locating"}
+          onClick={() => void leaveVisit()}
+        >
+          {leaving ? "Guardando salida…" : "Registrar salida"}
+        </Button>
+      ) : null}
+
+      {phase.status === "departed" ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Salida registrada</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-zinc-500">
+              La salida quedó en el teléfono. Se envía cuando haya señal.
+            </p>
+            <Button className="w-full" onClick={() => router.push("/visitas")}>
+              Volver a visitas
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {phase.status === "scanning" || phase.status === "idle" || phase.status === "error" ? (
         <Button className="w-full gap-2" onClick={() => void startCamera()} disabled={phase.status === "scanning" && cameraReady}>

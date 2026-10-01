@@ -1,20 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
-import { Circle, CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
+import * as maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { useEffect, useRef } from "react";
 
-function FocusPoint({ lat, lng }: { lat: number; lng: number }) {
-  const map = useMap();
-
-  useEffect(() => {
-    map.setView([lat, lng], 17);
-    const timer = window.setTimeout(() => map.invalidateSize(), 150);
-    return () => window.clearTimeout(timer);
-  }, [lat, lng, map]);
-
-  return null;
-}
+import { circlePolygon, MAP_STYLE } from "@/features/coordinacion/components/mapStyle";
 
 export function QrSpotMap({
   lat,
@@ -27,32 +17,64 @@ export function QrSpotMap({
   radiusMeters: number;
   label: string;
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const map = new maplibregl.Map({
+      container,
+      style: MAP_STYLE,
+      center: [lng, lat],
+      zoom: 17,
+    });
+
+    let marker: maplibregl.Marker | null = null;
+
+    map.on("load", () => {
+      map.addSource("radius", {
+        type: "geojson",
+        data: circlePolygon(lng, lat, radiusMeters),
+      });
+      map.addLayer({
+        id: "radius-fill",
+        type: "fill",
+        source: "radius",
+        paint: { "fill-color": "#fb923c", "fill-opacity": 0.25 },
+      });
+      map.addLayer({
+        id: "radius-line",
+        type: "line",
+        source: "radius",
+        paint: { "line-color": "#c2410c", "line-width": 2 },
+      });
+
+      const element = document.createElement("div");
+      element.style.width = "16px";
+      element.style.height = "16px";
+      element.style.borderRadius = "9999px";
+      element.style.background = "#fb923c";
+      element.style.border = "2px solid #9a3412";
+      marker = new maplibregl.Marker({ element })
+        .setLngLat([lng, lat])
+        .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }).setText(label))
+        .addTo(map);
+      marker.togglePopup();
+    });
+
+    return () => {
+      marker?.remove();
+      map.remove();
+    };
+  }, [lat, lng, radiusMeters, label]);
+
   return (
-    <div className="h-64 w-full overflow-hidden rounded-xl border border-zinc-200">
-      <MapContainer
-        center={[lat, lng]}
-        zoom={17}
-        className="h-full w-full"
-        style={{ height: "100%", width: "100%" }}
-        scrollWheelZoom={false}
-      >
-        <FocusPoint lat={lat} lng={lng} />
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        <Circle
-          center={[lat, lng]}
-          radius={radiusMeters}
-          pathOptions={{ color: "#c2410c", fillColor: "#fb923c", fillOpacity: 0.2, weight: 2 }}
-        />
-        <CircleMarker
-          center={[lat, lng]}
-          radius={8}
-          pathOptions={{ color: "#9a3412", fillColor: "#fb923c", fillOpacity: 1, weight: 2 }}
-        >
-          <Tooltip permanent direction="top">
-            {label}
-          </Tooltip>
-        </CircleMarker>
-      </MapContainer>
-    </div>
+    <div
+      ref={containerRef}
+      className="h-64 w-full overflow-hidden rounded-xl border border-zinc-200"
+    />
   );
 }

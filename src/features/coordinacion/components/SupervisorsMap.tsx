@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect } from "react";
-import "leaflet/dist/leaflet.css";
-import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
+import * as maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { useEffect, useRef } from "react";
 
-/** Vista inicial por defecto: Bogotá D.C. (donde operan los centros de costo del sistema). */
-const BOGOTA_CENTER: [number, number] = [4.6784, -74.0681];
+import { MAP_STYLE } from "@/features/coordinacion/components/mapStyle";
+
+const BOGOTA = { lng: -74.0681, lat: 4.6784 };
 
 export interface MapCostCenter {
   id: string;
@@ -29,62 +30,15 @@ export interface MapScannedQr {
   lng: number;
 }
 
-/**
- * Controlador interno para resolver el bug de 'pantalla gris' de Leaflet en Next.js
- * ejecutando invalidateSize() tras el montaje y ajustando automáticamente el encuadre (fitBounds).
- */
-function MapController({
-  centers,
-  supervisors,
-  scans,
-}: {
-  centers: MapCostCenter[];
-  supervisors: MapSupervisor[];
-  scans: MapScannedQr[];
-}) {
-  const map = useMap();
-
-  useEffect(() => {
-    // 1. Resuelve el renderizado gris forzando el cálculo de dimensiones del contenedor
-    const t1 = setTimeout(() => map.invalidateSize(), 150);
-    const t2 = setTimeout(() => map.invalidateSize(), 500);
-
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-    };
-  }, [map]);
-
-  useEffect(() => {
-    // 2. Encuadre dinámico de los sitios y supervisores
-    const allCoords: [number, number][] = [];
-
-    centers.forEach((c) => {
-      if (typeof c.lat === "number" && typeof c.lng === "number") {
-        allCoords.push([c.lat, c.lng]);
-      }
-    });
-
-    supervisors.forEach((person) => {
-      if (typeof person.lat === "number" && typeof person.lng === "number") {
-        allCoords.push([person.lat, person.lng]);
-      }
-    });
-
-    scans.forEach((scan) => {
-      if (typeof scan.lat === "number" && typeof scan.lng === "number") {
-        allCoords.push([scan.lat, scan.lng]);
-      }
-    });
-
-    if (allCoords.length === 1) {
-      map.setView(allCoords[0], 14);
-    } else if (allCoords.length > 1) {
-      map.fitBounds(allCoords, { padding: [50, 50], maxZoom: 15 });
-    }
-  }, [centers, supervisors, scans, map]);
-
-  return null;
+function dot(color: string, size: number) {
+  const element = document.createElement("div");
+  element.style.width = `${size}px`;
+  element.style.height = `${size}px`;
+  element.style.borderRadius = "9999px";
+  element.style.background = color;
+  element.style.border = "2px solid #fff";
+  element.style.boxShadow = "0 0 0 1px rgba(0,0,0,0.35)";
+  return element;
 }
 
 export function SupervisorsMap({
@@ -96,100 +50,90 @@ export function SupervisorsMap({
   supervisors: MapSupervisor[];
   scans: MapScannedQr[];
 }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const map = new maplibregl.Map({
+      container,
+      style: MAP_STYLE,
+      center: [BOGOTA.lng, BOGOTA.lat],
+      zoom: 12,
+    });
+
+    const markers: maplibregl.Marker[] = [];
+
+    map.on("load", () => {
+      const bounds = new maplibregl.LngLatBounds();
+      let points = 0;
+
+      const place = (lng: number, lat: number) => {
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+          return;
+        }
+        bounds.extend([lng, lat]);
+        points += 1;
+      };
+
+      for (const center of centers) {
+        place(center.lng, center.lat);
+        const marker = new maplibregl.Marker({ element: dot("#18181b", 16) })
+          .setLngLat([center.lng, center.lat])
+          .setPopup(
+            new maplibregl.Popup({ offset: 12 }).setText(
+              `${center.name} · ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`,
+            ),
+          )
+          .addTo(map);
+        markers.push(marker);
+      }
+
+      for (const person of supervisors) {
+        place(person.lng, person.lat);
+        const marker = new maplibregl.Marker({ element: dot("#84cc16", 14) })
+          .setLngLat([person.lng, person.lat])
+          .setPopup(
+            new maplibregl.Popup({ offset: 12 }).setText(
+              `${person.name} · último check-in ${person.checkInLabel}`,
+            ),
+          )
+          .addTo(map);
+        markers.push(marker);
+      }
+
+      for (const scan of scans) {
+        place(scan.lng, scan.lat);
+        const marker = new maplibregl.Marker({ element: dot("#fb923c", 12) })
+          .setLngLat([scan.lng, scan.lat])
+          .setPopup(new maplibregl.Popup({ offset: 12 }).setText(scan.label))
+          .addTo(map);
+        markers.push(marker);
+      }
+
+      if (points === 1) {
+        map.setCenter(bounds.getCenter());
+        map.setZoom(14);
+      } else if (points > 1) {
+        map.fitBounds(bounds, { padding: 50, maxZoom: 15 });
+      }
+    });
+
+    return () => {
+      markers.forEach((marker) => marker.remove());
+      map.remove();
+    };
+  }, [centers, supervisors, scans]);
+
   return (
     <section className="flex flex-col gap-3">
-      <style>{`
-        .field-map .leaflet-container {
-          height: 32rem;
-          width: 100%;
-          background: #fff;
-        }
-        .field-map .leaflet-container img.leaflet-tile {
-          max-width: none !important;
-          max-height: none !important;
-        }
-      `}</style>
-      <div className="field-map relative h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200">
-        <MapContainer
-          center={BOGOTA_CENTER}
-          zoom={12}
-          style={{ height: "100%", width: "100%" }}
-          scrollWheelZoom
-        >
-          <MapController centers={centers} supervisors={supervisors} scans={scans} />
-
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            maxZoom={19}
-            noWrap
-          />
-
-          {/* Marcadores de Centros de Costo */}
-          {centers.map((center) => (
-            <CircleMarker
-              key={center.id}
-              center={[center.lat, center.lng]}
-              radius={10}
-              pathOptions={{
-                color: "#09090b",
-                fillColor: "#18181b",
-                fillOpacity: 0.95,
-                weight: 2,
-              }}
-            >
-              <Tooltip permanent={false} direction="top">
-                <span className="font-semibold">{center.name}</span>
-                <br />
-                <span className="text-xs text-zinc-500">
-                  {center.lat.toFixed(4)}, {center.lng.toFixed(4)}
-                </span>
-              </Tooltip>
-            </CircleMarker>
-          ))}
-
-          {/* Marcadores de Supervisores (Última posición GPS) */}
-          {supervisors.map((person) => (
-            <CircleMarker
-              key={person.id}
-              center={[person.lat, person.lng]}
-              radius={9}
-              pathOptions={{
-                color: "#3f6212",
-                fillColor: "#84cc16",
-                fillOpacity: 0.95,
-                weight: 2,
-              }}
-            >
-              <Tooltip permanent={false} direction="top">
-                <span className="font-semibold">{person.name}</span>
-                <br />
-                <span className="text-xs">Último check-in: {person.checkInLabel}</span>
-              </Tooltip>
-            </CircleMarker>
-          ))}
-
-          {/* Marcadores de Escaneos de Códigos QR */}
-          {scans.map((scan) => (
-            <CircleMarker
-              key={scan.id}
-              center={[scan.lat, scan.lng]}
-              radius={7}
-              pathOptions={{
-                color: "#9a3412",
-                fillColor: "#fb923c",
-                fillOpacity: 0.95,
-                weight: 2,
-              }}
-            >
-              <Tooltip direction="top">
-                <span className="text-xs font-semibold">{scan.label}</span>
-              </Tooltip>
-            </CircleMarker>
-          ))}
-        </MapContainer>
-      </div>
-
+      <div
+        ref={containerRef}
+        className="h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200"
+      />
       <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-zinc-600">
         <div className="flex flex-wrap items-center gap-4">
           <span className="flex items-center gap-2">
@@ -206,9 +150,7 @@ export function SupervisorsMap({
           </span>
         </div>
         {supervisors.length === 0 ? (
-          <span className="text-xs text-zinc-400">
-            Sin check-ins de supervisores activos hoy.
-          </span>
+          <span className="text-xs text-zinc-400">Sin check-ins de supervisores activos hoy.</span>
         ) : null}
       </div>
     </section>

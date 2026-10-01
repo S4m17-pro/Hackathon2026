@@ -5,19 +5,22 @@ import { bogotaToday, listCostCenters, listQrPoints, listVisits } from "@/featur
 export default async function EscanearPage({
   searchParams,
 }: {
-  searchParams: Promise<{ visita?: string }>;
+  searchParams: Promise<{ visita?: string; salida?: string }>;
 }) {
   const session = await requireRole("SUPERVISOR");
-  const { visita } = await searchParams;
+  const { visita, salida } = await searchParams;
   const catalog = await loadCatalog();
   const arrival = await loadArrival(session.id, visita);
   const checkingIn = arrival?.status === "ASSIGNED";
+  const checkingOut = salida === "1" && arrival?.status === "IN_PROGRESS";
 
   return (
     <main className="flex flex-col gap-4 p-4">
       <header className="flex flex-col gap-1">
         <p className="text-xs tracking-wide text-zinc-500 uppercase">Supervisor</p>
-        <h1 className="text-2xl font-semibold">{checkingIn ? "Llegada" : "Escanear QR"}</h1>
+        <h1 className="text-2xl font-semibold">
+          {checkingOut ? "Salida" : checkingIn ? "Llegada" : "Escanear QR"}
+        </h1>
       </header>
       <QrScanner catalog={catalog} visitClientId={arrival?.clientId ?? null} arrival={arrival} />
     </main>
@@ -55,6 +58,13 @@ async function loadArrival(supervisorId: string, clientId?: string): Promise<Arr
       status: chosen.status,
       centerLat: center?.lat ?? null,
       centerLng: center?.lng ?? null,
+      checkInLat: chosen.checkInLat,
+      checkInLng: chosen.checkInLng,
+      checkInAccuracyM: chosen.checkInAccuracyM,
+      checkInAt: chosen.checkInAt,
+      checkInDistanceM: chosen.checkInDistanceM,
+      checkInVerified: chosen.checkInVerified,
+      checkInOutOfRange: chosen.checkInOutOfRange,
     };
   } catch {
     return null;

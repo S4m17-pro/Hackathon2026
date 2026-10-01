@@ -1,10 +1,12 @@
 "use client";
 
-import "leaflet/dist/leaflet.css";
-import { useEffect } from "react";
-import { CircleMarker, MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import * as maplibregl from "maplibre-gl";
+import "maplibre-gl/dist/maplibre-gl.css";
+import { useEffect, useRef } from "react";
 
-const BARRANQUILLA: [number, number] = [10.9685, -74.7813];
+import { MAP_STYLE } from "@/features/coordinacion/components/mapStyle";
+
+const BARRANQUILLA = { lng: -74.7813, lat: 10.9685 };
 
 export function QrLocationPicker({
   center,
@@ -15,45 +17,57 @@ export function QrLocationPicker({
   point: { lat: number; lng: number } | null;
   onPick: (lat: number, lng: number) => void;
 }) {
-  const focus = point ?? center;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+
+    const focus = point ?? center ?? BARRANQUILLA;
+    const map = new maplibregl.Map({
+      container,
+      style: MAP_STYLE,
+      center: [focus.lng, focus.lat],
+      zoom: point || center ? 16 : 13,
+    });
+
+    let marker: maplibregl.Marker | null = null;
+
+    const showPoint = (lat: number, lng: number) => {
+      marker?.remove();
+      const element = document.createElement("div");
+      element.style.width = "16px";
+      element.style.height = "16px";
+      element.style.borderRadius = "9999px";
+      element.style.background = "#fb923c";
+      element.style.border = "2px solid #9a3412";
+      marker = new maplibregl.Marker({ element }).setLngLat([lng, lat]).addTo(map);
+    };
+
+    map.on("click", (event: maplibregl.MapMouseEvent) => {
+      onPickRef.current(event.lngLat.lat, event.lngLat.lng);
+    });
+
+    if (point) {
+      map.on("load", () => showPoint(point.lat, point.lng));
+    }
+
+    return () => {
+      marker?.remove();
+      map.remove();
+    };
+  }, [center, point]);
 
   return (
     <div className="flex flex-col gap-2">
-      <style>{`
-        .qr-pick-map .leaflet-container {
-          height: 16rem;
-          width: 100%;
-          background: #fff;
-        }
-        .qr-pick-map .leaflet-container img.leaflet-tile {
-          max-width: none !important;
-          max-height: none !important;
-        }
-      `}</style>
-      <div className="qr-pick-map h-64 w-full overflow-hidden rounded-xl border border-zinc-200">
-        <MapContainer
-          center={focus ? [focus.lat, focus.lng] : BARRANQUILLA}
-          zoom={focus ? 16 : 13}
-          style={{ height: "100%", width: "100%" }}
-          scrollWheelZoom
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            maxZoom={19}
-            noWrap
-          />
-          <MoveTo center={center} />
-          <PickPoint onPick={onPick} />
-          {point ? (
-            <CircleMarker
-              center={[point.lat, point.lng]}
-              radius={9}
-              pathOptions={{ color: "#9a3412", fillColor: "#fb923c", fillOpacity: 0.95, weight: 2 }}
-            />
-          ) : null}
-        </MapContainer>
-      </div>
+      <div
+        ref={containerRef}
+        className="h-64 w-full overflow-hidden rounded-xl border border-zinc-200"
+      />
       <p className="text-sm text-zinc-500">
         {point
           ? `Punto marcado: ${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`
@@ -61,28 +75,4 @@ export function QrLocationPicker({
       </p>
     </div>
   );
-}
-
-function MoveTo({ center }: { center: { lat: number; lng: number } | null }) {
-  const map = useMap();
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => map.invalidateSize(), 150);
-    if (center) {
-      map.setView([center.lat, center.lng], 16);
-    }
-    return () => window.clearTimeout(timer);
-  }, [center, map]);
-
-  return null;
-}
-
-function PickPoint({ onPick }: { onPick: (lat: number, lng: number) => void }) {
-  useMapEvents({
-    click(event) {
-      onPick(event.latlng.lat, event.latlng.lng);
-    },
-  });
-
-  return null;
 }
