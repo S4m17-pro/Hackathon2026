@@ -49,6 +49,7 @@ async function loadAssignments() {
         centerName: centerName.get(visit.costCenterId) ?? "Centro",
         scheduledAt: visit.scheduledAt,
         status: visit.status,
+        updatedAt: visit.updatedAt,
       })),
       qrPoints: qrPoints.map((point) => ({
         id: point.id,
@@ -57,6 +58,7 @@ async function loadAssignments() {
         centerName: centerName.get(point.costCenterId) ?? "Centro",
         isActive: point.isActive,
         radiusMeters: point.radiusMeters,
+        updatedAt: point.updatedAt,
       })),
     };
   } catch {

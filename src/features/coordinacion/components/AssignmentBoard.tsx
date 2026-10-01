@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
-import { Printer, QrCode, X } from "lucide-react";
+import { useState, useTransition, useMemo, type FormEvent } from "react";
+import { Clock, Printer, QrCode, Search, Sparkles, X } from "lucide-react";
 
 import { QrCodeImage } from "@/shared/ui/QrCodeImage";
 
@@ -44,6 +44,7 @@ export interface AssignmentVisitRow {
   centerName: string;
   scheduledAt: string | null;
   status: VisitStatus;
+  updatedAt: string;
 }
 
 export interface AssignmentQrRow {
@@ -53,6 +54,7 @@ export interface AssignmentQrRow {
   centerName: string;
   isActive: boolean;
   radiusMeters: number;
+  updatedAt?: string;
 }
 
 const statusLabel: Record<VisitStatus, string> = {
@@ -76,6 +78,10 @@ function formatWhen(iso: string | null): string {
   }).format(new Date(iso));
 }
 
+function isWithin24Hours(iso: string): boolean {
+  return Date.now() - new Date(iso).getTime() < 24 * 60 * 60 * 1000;
+}
+
 export function AssignmentBoard({
   supervisors,
   centers,
@@ -94,6 +100,12 @@ export function AssignmentBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [selectedQr, setSelectedQr] = useState<AssignmentQrRow | null>(null);
+
+  // Estados de filtrado y ordenación por modificación reciente
+  const [filterRecent, setFilterRecent] = useState<"ALL" | "24H" | "7D">("ALL");
+  const [sortByRecent, setSortByRecent] = useState<boolean>(true);
+  const [statusFilter, setStatusFilter] = useState<VisitStatus | "ALL">("ALL");
+  const [search, setSearch] = useState<string>("");
 
   function refresh(okMessage: string) {
     setError(null);
@@ -183,6 +195,39 @@ export function AssignmentBoard({
       refresh(isActive ? "QR desactivado." : "QR activado.");
     });
   }
+
+  // Filtrar y ordenar visitas
+  const visibleVisits = useMemo(() => {
+    const now = Date.now();
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const SEVEN_DAYS = 7 * ONE_DAY;
+
+    return visits
+      .filter((v) => {
+        if (statusFilter !== "ALL" && v.status !== statusFilter) return false;
+
+        const modTime = new Date(v.updatedAt).getTime();
+        if (filterRecent === "24H" && now - modTime > ONE_DAY) return false;
+        if (filterRecent === "7D" && now - modTime > SEVEN_DAYS) return false;
+
+        if (search.trim()) {
+          const q = search.toLowerCase();
+          const matchSup = v.supervisorName.toLowerCase().includes(q);
+          const matchCenter = v.centerName.toLowerCase().includes(q);
+          if (!matchSup && !matchCenter) return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortByRecent) {
+          return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+        }
+        const dateA = a.scheduledAt ? new Date(a.scheduledAt).getTime() : 0;
+        const dateB = b.scheduledAt ? new Date(b.scheduledAt).getTime() : 0;
+        return dateB - dateA;
+      });
+  }, [visits, statusFilter, filterRecent, sortByRecent, search]);
 
   const canAssign = supervisors.length > 0 && centers.length > 0;
 
@@ -290,49 +335,167 @@ export function AssignmentBoard({
 
       <Card>
         <CardHeader>
-          <CardTitle>Visitas asignadas</CardTitle>
-          <CardDescription>{visits.length} en total</CardDescription>
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Visitas asignadas</CardTitle>
+              <CardDescription>
+                {visibleVisits.length} de {visits.length} visitas mostradas
+              </CardDescription>
+            </div>
+
+            {/* Toggle de ordenación por modificación reciente */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant={sortByRecent ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSortByRecent(!sortByRecent)}
+                className="gap-1.5 text-xs h-8"
+              >
+                <Clock className="size-3.5" />
+                <span>{sortByRecent ? "Orden: Modificación reciente" : "Orden: Horario"}</span>
+              </Button>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
+          {/* Barra de Filtros interactiva */}
+          <div className="flex flex-col gap-3 rounded-xl border border-zinc-200/70 bg-zinc-50/70 p-3 text-xs md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-zinc-700">Filtrar por modificación:</span>
+              <button
+                type="button"
+                onClick={() => setFilterRecent("ALL")}
+                className={`rounded-lg px-2.5 py-1 font-medium transition ${
+                  filterRecent === "ALL"
+                    ? "bg-zinc-950 text-white"
+                    : "bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                Todas
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterRecent("24H")}
+                className={`flex items-center gap-1 rounded-lg px-2.5 py-1 font-medium transition ${
+                  filterRecent === "24H"
+                    ? "bg-lime-600 text-white"
+                    : "bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                <Sparkles className="size-3" />
+                Últimas 24 horas
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterRecent("7D")}
+                className={`rounded-lg px-2.5 py-1 font-medium transition ${
+                  filterRecent === "7D"
+                    ? "bg-zinc-800 text-white"
+                    : "bg-white text-zinc-700 border border-zinc-200 hover:bg-zinc-100"
+                }`}
+              >
+                Últimos 7 días
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-zinc-700">Estado:</span>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as VisitStatus | "ALL")}
+                className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs text-zinc-800 outline-none"
+              >
+                <option value="ALL">Todos los estados</option>
+                <option value="ASSIGNED">Asignada</option>
+                <option value="IN_PROGRESS">En curso</option>
+                <option value="COMPLETED">Completada</option>
+                <option value="CANCELLED">Cancelada</option>
+              </select>
+
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-zinc-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar supervisor o centro..."
+                  className="rounded-lg border border-zinc-200 bg-white py-1 pl-8 pr-2 text-xs text-zinc-800 outline-none"
+                />
+              </div>
+            </div>
+          </div>
+
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Centro</TableHead>
                 <TableHead>Supervisor</TableHead>
-                <TableHead>Horario</TableHead>
+                <TableHead>Horario programado</TableHead>
+                <TableHead>
+                  <div className="flex items-center gap-1">
+                    <span>Última modificación</span>
+                    {sortByRecent && <Clock className="size-3 text-zinc-500" />}
+                  </div>
+                </TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead> </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {visits.length === 0 ? (
+              {visibleVisits.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5}>Todavía no hay visitas.</TableCell>
+                  <TableCell colSpan={6} className="text-center py-6 text-zinc-400">
+                    No se encontraron visitas con los filtros aplicados.
+                  </TableCell>
                 </TableRow>
               ) : (
-                visits.map((visit) => (
-                  <TableRow key={visit.id}>
-                    <TableCell className="font-medium">{visit.centerName}</TableCell>
-                    <TableCell>{visit.supervisorName}</TableCell>
-                    <TableCell>{formatWhen(visit.scheduledAt)}</TableCell>
-                    <TableCell>
-                      <Badge tone={visit.status === "CANCELLED" ? "offline" : "neutral"}>
-                        {statusLabel[visit.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {visit.status === "ASSIGNED" || visit.status === "IN_PROGRESS" ? (
-                        <Button
-                          variant="outline"
-                          onClick={() => onCancel(visit.id)}
-                          disabled={pending}
+                visibleVisits.map((visit) => {
+                  const recent = isWithin24Hours(visit.updatedAt);
+                  return (
+                    <TableRow key={visit.id}>
+                      <TableCell className="font-medium">{visit.centerName}</TableCell>
+                      <TableCell>{visit.supervisorName}</TableCell>
+                      <TableCell className="text-xs text-zinc-600">{formatWhen(visit.scheduledAt)}</TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1.5 text-xs text-zinc-600">
+                          <span>{formatWhen(visit.updatedAt)}</span>
+                          {recent && (
+                            <span className="rounded-full bg-lime-100 px-1.5 py-0.5 text-[10px] font-medium text-lime-800">
+                              Reciente
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          tone={
+                            visit.status === "CANCELLED"
+                              ? "offline"
+                              : visit.status === "COMPLETED"
+                                ? "done"
+                                : visit.status === "IN_PROGRESS"
+                                  ? "progress"
+                                  : "neutral"
+                          }
                         >
-                          Cancelar
-                        </Button>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))
+                          {statusLabel[visit.status]}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {visit.status === "ASSIGNED" || visit.status === "IN_PROGRESS" ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => onCancel(visit.id)}
+                            disabled={pending}
+                          >
+                            Cancelar
+                          </Button>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
