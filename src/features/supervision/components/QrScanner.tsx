@@ -7,6 +7,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { enqueueQrScan } from "@/features/supervision/offline/outbox";
 import {
   bulkCacheQrPoints,
+  dropRetiredQrPoints,
   findCachedQrPoint,
   verifyQrLocation,
   type QrLocationCheck,
@@ -79,11 +80,11 @@ export function QrScanner({
   const [cameraReady, setCameraReady] = useState(false);
 
   useEffect(() => {
-    if (catalog.length === 0) {
-      return;
-    }
-
-    void bulkCacheQrPoints(catalog);
+    void dropRetiredQrPoints().then(() => {
+      if (catalog.length > 0) {
+        return bulkCacheQrPoints(catalog);
+      }
+    });
   }, [catalog]);
 
   useEffect(() => {
