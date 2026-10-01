@@ -1,3 +1,5 @@
+import { AreaEvidencePanel } from "@/features/supervision/components/AreaEvidencePanel";
+
 export default async function QrEvidencePage({
   params,
 }: {
@@ -6,9 +8,8 @@ export default async function QrEvidencePage({
   const { code } = await params;
 
   return (
-    <main>
-      <h1>Evidencias del área</h1>
-      <p>{code}</p>
+    <main className="flex flex-col gap-4 p-4">
+      <AreaEvidencePanel code={decodeURIComponent(code)} />
     </main>
   );
 }
