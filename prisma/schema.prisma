@@ -1,10 +1,27 @@
 // Contrato de datos. Este archivo es de Juan: nadie mas lo edita.
 // Si falta un campo, lo agrega Juan al schema y a `src/shared/types/index.ts`.
 //
-// Idempotencia offline: las entidades creadas en el dispositivo usan `clientId`
-// (UUID local) como clave de `prisma.upsert`. El `id` lo asigna el servidor.
-// Los helpers de `src/shared/lib/data.ts` son la unica forma de escribir:
-// respetan esta regla y la de no pisar campos que asigna el servidor.
+// Fuente funcional: MICRO_SDD.md.
+//
+// Tres reglas que TODO este schema respeta:
+//
+// 1. Idempotencia offline (regla 2). Cada entidad que nace en el dispositivo
+//    lleva `clientId` (UUID local) con `@unique`, y es la llave del
+//    `prisma.upsert`. El `id` lo asigna el servidor. Recibir dos veces la misma
+//    operacion no puede duplicar filas.
+//
+// 2. Doble registro cronologico (regla 5, CA-05). `clientCreatedAt` es la hora
+//    del dispositivo, intocable. `receivedAt` es la hora de recepcion en el
+//    servidor. En las entidades que nacen en el dispositivo NUNCA se usa
+//    `createdAt` para guardar la hora del hecho: ese rol lo cumple
+//    `clientCreatedAt`. Las tablas que solo crea el servidor (User,
+//    CostCenter, QrPoint, ChecklistTemplate) si usan `createdAt` normal.
+//
+// 3. Autoridad geografica (regla 3). Estar fuera de rango NO bloquea la
+//    operacion, se marca. Por eso `*OutOfRange` es un flag explicito y no una
+//    validacion: el supervisor siempre puede cerrar su visita.
+//
+// Los helpers de `src/shared/lib/data.ts` son la unica forma de escribir.
 
 generator client {
   provider = "prisma-client-js"
@@ -24,6 +41,8 @@ enum VisitStatus {
   ASSIGNED
   IN_PROGRESS
   COMPLETED
+  /// RF-ASI-01. Solo la escribe el coordinador. El sync del dispositivo no la revierte.
+  CANCELLED
 }
 
 enum NoveltyPriority {
@@ -43,31 +62,57 @@ enum EvidenceOwnerType {
   VISIT
   NOVELTY
   QR_SCAN
+  CHECKLIST_ITEM
+}
+
+/// Estados del ciclo de vida de una novedad (regla 4 del SDD).
+/// ABIERTA -> EN_SEGUIMIENTO -> CERRADA. Cerrar exige `closedAt`,
+/// `closedById` y `resolutionAction`; lo valida `closeNovelty`.
+
+/// Marcacion de un item de checklist (RF-SUP-02).
+/// PENDING es el estado inicial de un item aun no tocado.
+enum ChecklistItemStatus {
+  PENDING
+  DONE
+  NOT_DONE
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      Role
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  /// Hash con scrypt (RNF-07). NUNCA se expone al cliente: la vista de
+  /// `shared/types` de User no incluye este campo a proposito.
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  visits Visit[]
+  visits        Visit[]
+  closedNovelty Novelty[]           @relation("NoveltyClosedBy")
+  templates     ChecklistTemplate[] @relation("TemplateAuthor")
 
   @@index([role])
 }
 
+/// RF-ASI-02: nombre, direccion y coordenadas de referencia.
+/// `lat`/`lng` son la referencia contra la que se calcula el radio.
 model CostCenter {
   id        String   @id @default(cuid())
   name      String
+  address   String
   lat       Float
   lng       Float
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  visits   Visit[]
-  qrPoints QrPoint[]
+  /// RF-ASI-03: plantilla asociada por defecto al centro.
+  checklistTemplateId String?
+  checklistTemplate   ChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
+
+  visits         Visit[]
+  qrPoints       QrPoint[]
+  checklistItems ChecklistTemplateItem[]
 
   @@index([name])
 }
@@ -78,30 +123,66 @@ model Visit {
   supervisorId String
   costCenterId String
   status       VisitStatus @default(ASSIGNED)
+  /// RF-ASI-01. Fecha y hora programadas por el coordinador.
+  /// El sync del dispositivo no la pisa: no viaja en `VisitSyncPayload`.
+  scheduledAt  DateTime?
 
-  checkInLat Float?
-  checkInLng Float?
-  checkInAt  DateTime?
+  /// Si el dispositivo no logro la precarga, se duplica la plantilla aqui
+  /// para que el supervisor pueda diligenciarla sin red (RF-OFF-01).
+  checklistTemplateId String?
+  checklistTemplate   ChecklistTemplate? @relation(fields: [checklistTemplateId], references: [id], onDelete: SetNull)
 
-  checkOutLat Float?
-  checkOutLng Float?
-  checkOutAt  DateTime?
+  // --- Check-in (RF-VIS-01) ---
+  checkInLat        Float?
+  checkInLng        Float?
+  /// Precision del GPS reportada por el dispositivo, en metros.
+  checkInAccuracyM  Float?
+  checkInAt         DateTime?
+  /// Distancia recalculada por el servidor al sincronizar (regla 3).
+  checkInDistanceM  Float?
+  /// true = dentro del radio tolerado. false = fuera de rango, NO bloqueado.
+  checkInVerified   Boolean   @default(false)
+  checkInOutOfRange Boolean   @default(false)
 
+  // --- Check-out (RF-VIS-02) ---
+  checkOutLat        Float?
+  checkOutLng        Float?
+  checkOutAccuracyM  Float?
+  checkOutAt         DateTime?
+  checkOutDistanceM  Float?
+  checkOutVerified   Boolean   @default(false)
+  checkOutOutOfRange Boolean   @default(false)
+  /// RF-VIS-02: observaciones de cierre.
+  checkOutNotes      String?   @db.Text
+  /// RF-SUP-03: observaciones generales de la visita.
+  notes              String?   @db.Text
+
+  /// Regla 5. Hora del dispositivo al crear la visita.
   clientCreatedAt DateTime
-  createdAt       DateTime @default(now())
+  /// Regla 5. Hora de recepcion en el servidor.
+  receivedAt      DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  supervisor User       @relation(fields: [supervisorId], references: [id])
-  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
-  qrScans    QrScan[]
-  novelties  Novelty[]
+  supervisor       User                  @relation(fields: [supervisorId], references: [id])
+  costCenter       CostCenter            @relation(fields: [costCenterId], references: [id])
+  qrScans          QrScan[]
+  novelties        Novelty[]
+  checklistResults ChecklistItemResult[]
 
   @@index([supervisorId])
   @@index([costCenterId])
   @@index([status])
+  @@index([scheduledAt])
   @@index([clientCreatedAt])
+  /// RF-PAN-08: el panel busca check-ins fuera de rango y visitas demoradas.
+  @@index([checkInOutOfRange])
+  @@index([receivedAt])
 }
 
+/// RF-QR-01 y RF-QR-02.
+/// `radiusMeters` tiene default 50 m segun el SDD, no 30.
+/// `isActive` desactiva un punto sin borrarlo: RF-QR-06 exige que el
+/// escaner diga "existe pero esta inactivo", que es distinto de "no existe".
 model QrPoint {
   id           String   @id @default(cuid())
   code         String   @unique
@@ -109,7 +190,8 @@ model QrPoint {
   areaName     String
   lat          Float
   lng          Float
-  radiusMeters Int
+  radiusMeters Int      @default(50)
+  isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -117,17 +199,21 @@ model QrPoint {
   scans      QrScan[]
 
   @@index([costCenterId])
+  /// La PWA precarga solo puntos activos (RF-OFF-01).
+  @@index([isActive])
 }
 
 model QrScan {
-  id             String   @id @default(cuid())
-  clientId       String   @unique
-  qrPointId      String
-  visitId        String
-  distanceMeters Float
-  verified       Boolean
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  clientId        String   @unique
+  qrPointId       String
+  visitId         String
+  distanceMeters  Float
+  verified        Boolean
+  /// CA-05: sin esto el panel no puede mostrar cuando se escaneo en campo.
+  clientCreatedAt DateTime
+  receivedAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   qrPoint QrPoint @relation(fields: [qrPointId], references: [id])
   visit   Visit   @relation(fields: [visitId], references: [id])
@@ -135,40 +221,136 @@ model QrScan {
   @@index([qrPointId])
   @@index([visitId])
   @@index([verified])
+  @@index([clientCreatedAt])
 }
 
 model Novelty {
-  id              String          @id @default(cuid())
-  clientId        String          @unique
-  visitId         String
-  priority        NoveltyPriority
-  status          NoveltyStatus   @default(OPEN)
-  description     String          @db.Text
-  clientCreatedAt DateTime
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  id          String          @id @default(cuid())
+  clientId    String          @unique
+  visitId     String
+  priority    NoveltyPriority
+  status      NoveltyStatus   @default(OPEN)
+  description String          @db.Text
 
-  visit Visit @relation(fields: [visitId], references: [id])
+  /// RF-NOV-01: coordenadas de la incidencia. Nullable porque seCaptura
+  /// solo si el usuario concede permiso de GPS (RNF-10).
+  lat Float?
+  lng Float?
+
+  // --- Cierre (regla 4, RF-NOV-05, CA-07) ---
+  /// Los tres son obligatorios cuando `status = RESOLVED`.
+  closedAt         DateTime?
+  closedById       String?
+  resolutionAction String?   @db.Text
+
+  /// Regla 5.
+  clientCreatedAt DateTime
+  receivedAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  visit    Visit @relation(fields: [visitId], references: [id])
+  closedBy User? @relation("NoveltyClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
 
   @@index([visitId])
   @@index([status])
   @@index([priority])
+  /// RF-NOV-06: filtros por rango de fechas.
+  @@index([clientCreatedAt])
+  @@index([receivedAt])
+}
+
+// --------------------------------------------------------------------------
+// Checklist (RF-SUP-01/02, RF-ASI-03, CA-02)
+// --------------------------------------------------------------------------
+
+/// Plantilla reutilizable. La crea el coordinador; el supervisor la diligencia.
+model ChecklistTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  /// Author de la plantilla, para auditoria.
+  createdById String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  createdBy   User?                   @relation("TemplateAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  items       ChecklistTemplateItem[]
+  costCenters CostCenter[]
+  visits      Visit[]
+
+  @@index([name])
+  @@index([isActive])
+}
+
+/// Items de la plantilla. Los define el coordinador, no el supervisor.
+model ChecklistTemplateItem {
+  id           String   @id @default(cuid())
+  templateId   String
+  costCenterId String?
+  label        String
+  /// Orden en que se diligencia.
+  position     Int
+  /// Si es obligatorio, CA-02 exige que no quede PENDING al cerrar.
+  required     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  template   ChecklistTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  costCenter CostCenter?           @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  results    ChecklistItemResult[]
+
+  @@unique([templateId, position])
+  @@index([templateId])
+  @@index([costCenterId])
+}
+
+/// Un item diligenciado por el supervisor en una visita concreta.
+///
+/// Nace en el dispositivo, asi que lleva `clientId` + doble timestamp.
+/// El `@@unique([visitId, itemId])` es la red de seguridad: ademas del upsert
+/// por `clientId`, impide que dos sincronizaciones distintas del mismo item
+/// creen filas duplicadas.
+model ChecklistItemResult {
+  id       String              @id @default(cuid())
+  clientId String              @unique
+  visitId  String
+  itemId   String
+  status   ChecklistItemStatus @default(PENDING)
+
+  /// RF-SUP-02: comentario del supervisor.
+  comment String? @db.Text
+
+  /// Regla 5.
+  clientCreatedAt DateTime
+  receivedAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  visit Visit                 @relation(fields: [visitId], references: [id])
+  item  ChecklistTemplateItem @relation(fields: [itemId], references: [id])
+
+  @@unique([visitId, itemId])
+  @@index([visitId])
+  @@index([status])
   @@index([clientCreatedAt])
 }
 
 /// Dueño polimorfico: `ownerType` + `ownerId` apuntan al `id` de servidor
-/// de Visit, Novelty o QrScan. No hay FK de Prisma a proposito.
+/// de Visit, Novelty, QrScan o ChecklistItemResult. No hay FK de Prisma a
+/// proposito.
 ///
 /// Sin FK, nada impide un `ownerId` colgado. La validacion es
 /// responsabilidad de `upsertEvidence` en `src/shared/lib/data.ts`.
 model Evidence {
-  id        String            @id @default(cuid())
-  clientId  String            @unique
-  ownerType EvidenceOwnerType
-  ownerId   String
-  url       String
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  id              String            @id @default(cuid())
+  clientId        String            @unique
+  ownerType       EvidenceOwnerType
+  ownerId         String
+  url             String
+  /// CA-05: hora en que se tomo la foto en campo, no la de subida.
+  clientCreatedAt DateTime
+  receivedAt      DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 
   @@index([ownerType, ownerId])
+  @@index([clientCreatedAt])
 }
