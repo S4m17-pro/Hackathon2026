@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Printer, QrCode, X } from "lucide-react";
 
+import { QrSpotMapClient } from "@/features/coordinacion/components/QrSpotMapClient";
 import { QrCodeImage } from "@/shared/ui/QrCodeImage";
 
 import {
@@ -50,6 +51,9 @@ export interface AssignmentQrRow {
   id: string;
   code: string;
   areaName: string;
+  costCenterId: string;
+  lat: number;
+  lng: number;
   centerName: string;
   isActive: boolean;
   radiusMeters: number;
@@ -94,6 +98,8 @@ export function AssignmentBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [selectedQr, setSelectedQr] = useState<AssignmentQrRow | null>(null);
+  const [qrCenterId, setQrCenterId] = useState("");
+  const [qrRadius, setQrRadius] = useState(50);
 
   function refresh(okMessage: string) {
     setError(null);
@@ -156,7 +162,9 @@ export function AssignmentBoard({
       }
 
       form.reset();
-      refresh("Código QR creado.");
+      setQrCenterId("");
+      setQrRadius(50);
+      refresh("Código QR creado. Ya aparece en el mapa del dashboard.");
     });
   }
 
@@ -185,6 +193,7 @@ export function AssignmentBoard({
   }
 
   const canAssign = supervisors.length > 0 && centers.length > 0;
+  const qrCenter = centers.find((center) => center.id === qrCenterId) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -265,7 +274,13 @@ export function AssignmentBoard({
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Centro de costo
-                <select name="costCenterId" required className={fieldClass} defaultValue="">
+                <select
+                  name="costCenterId"
+                  required
+                  className={fieldClass}
+                  value={qrCenterId}
+                  onChange={(event) => setQrCenterId(event.target.value)}
+                >
                   <option value="" disabled>
                     Elige un centro
                   </option>
@@ -278,8 +293,27 @@ export function AssignmentBoard({
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Radio en metros
-                <Input name="radiusMeters" type="number" min={1} defaultValue={50} />
+                <Input
+                  name="radiusMeters"
+                  type="number"
+                  min={1}
+                  value={qrRadius}
+                  onChange={(event) => setQrRadius(Number(event.target.value))}
+                />
               </label>
+              {qrCenter ? (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm text-zinc-500">
+                    El código queda en {qrCenter.name}. El círculo es el radio de {qrRadius} m.
+                  </p>
+                  <QrSpotMapClient
+                    lat={qrCenter.lat}
+                    lng={qrCenter.lng}
+                    radiusMeters={Number.isFinite(qrRadius) && qrRadius > 0 ? qrRadius : 50}
+                    label={qrCenter.name}
+                  />
+                </div>
+              ) : null}
               <Button type="submit" variant="contrast" className="w-full" disabled={centers.length === 0 || pending}>
                 Crear QR
               </Button>

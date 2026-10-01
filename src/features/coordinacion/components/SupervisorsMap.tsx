@@ -182,7 +182,7 @@ export function SupervisorsMap({
           </span>
           <span className="flex items-center gap-2">
             <span className="size-2.5 rounded-full bg-orange-400" />
-            QR escaneados ({scans.length})
+            Puntos QR ({scans.length})
           </span>
         </div>
         {supervisors.length === 0 ? (
