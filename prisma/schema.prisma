@@ -1,0 +1,166 @@
+// Idempotencia offline: las entidades creadas en el dispositivo usan `clientId`
+// (UUID local) como clave de `prisma.upsert`. El `id` lo asigna el servidor.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPERVISOR
+  COORDINADOR
+}
+
+enum VisitStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum NoveltyPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum NoveltyStatus {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+}
+
+enum EvidenceOwnerType {
+  VISIT
+  NOVELTY
+  QR_SCAN
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visits Visit[]
+
+  @@index([role])
+}
+
+model CostCenter {
+  id        String   @id @default(cuid())
+  name      String
+  lat       Float
+  lng       Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visits   Visit[]
+  qrPoints QrPoint[]
+
+  @@index([name])
+}
+
+model Visit {
+  id           String      @id @default(cuid())
+  clientId     String      @unique
+  supervisorId String
+  costCenterId String
+  status       VisitStatus @default(ASSIGNED)
+
+  checkInLat Float?
+  checkInLng Float?
+  checkInAt  DateTime?
+
+  checkOutLat Float?
+  checkOutLng Float?
+  checkOutAt  DateTime?
+
+  clientCreatedAt DateTime
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  supervisor User       @relation(fields: [supervisorId], references: [id])
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
+  qrScans    QrScan[]
+  novelties  Novelty[]
+
+  @@index([supervisorId])
+  @@index([costCenterId])
+  @@index([status])
+  @@index([clientCreatedAt])
+}
+
+model QrPoint {
+  id           String   @id @default(cuid())
+  code         String   @unique
+  costCenterId String
+  areaName     String
+  lat          Float
+  lng          Float
+  radiusMeters Int
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  costCenter CostCenter @relation(fields: [costCenterId], references: [id])
+  scans      QrScan[]
+
+  @@index([costCenterId])
+}
+
+model QrScan {
+  id             String   @id @default(cuid())
+  clientId       String   @unique
+  qrPointId      String
+  visitId        String
+  distanceMeters Float
+  verified       Boolean
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  qrPoint QrPoint @relation(fields: [qrPointId], references: [id])
+  visit   Visit   @relation(fields: [visitId], references: [id])
+
+  @@index([qrPointId])
+  @@index([visitId])
+  @@index([verified])
+}
+
+model Novelty {
+  id              String          @id @default(cuid())
+  clientId        String          @unique
+  visitId         String
+  priority        NoveltyPriority
+  status          NoveltyStatus   @default(OPEN)
+  description     String          @db.Text
+  clientCreatedAt DateTime
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  visit Visit @relation(fields: [visitId], references: [id])
+
+  @@index([visitId])
+  @@index([status])
+  @@index([priority])
+  @@index([clientCreatedAt])
+}
+
+/// Dueño polimórfico: `ownerType` + `ownerId` apuntan al `id` de servidor
+/// de Visit, Novelty o QrScan. No hay FK de Prisma a propósito.
+model Evidence {
+  id        String            @id @default(cuid())
+  clientId  String            @unique
+  ownerType EvidenceOwnerType
+  ownerId   String
+  url       String
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([ownerType, ownerId])
+}
