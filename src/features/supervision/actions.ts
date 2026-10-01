@@ -1,5 +1,6 @@
 "use server";
 
+import { getSession } from "@/app/(auth)/session";
 import {
   DataError,
   recalculateVisitGeofence,
@@ -42,7 +43,17 @@ export async function syncOperation(op: OutboxOp): Promise<SyncOperationResult> 
       }
 
       case "evidence.upsert": {
-        const row = await upsertEvidence(op.payload);
+        const session = await getSession();
+
+        if (!session || session.role !== "SUPERVISOR") {
+          return {
+            ok: false,
+            clientId: op.clientId,
+            error: "La evidencia solo la envia un supervisor con sesion activa.",
+          };
+        }
+
+        const row = await upsertEvidence(op.payload, session.id);
         return ok(op.clientId, row.id);
       }
 

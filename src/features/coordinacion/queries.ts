@@ -247,6 +247,32 @@ export async function listEvidence(): Promise<Evidence[]> {
   return rows.map(toEvidenceDTO);
 }
 
+export interface EvidenceTrace {
+  id: string;
+  url: string;
+  authorName: string;
+  ownerType: Evidence["ownerType"];
+  clientCreatedAt: string;
+  receivedAt: string;
+}
+
+/** RNF-14. Autor, hora en campo y hora de llegada al servidor. */
+export async function listEvidenceTrace(): Promise<EvidenceTrace[]> {
+  const rows = await prisma.evidence.findMany({
+    orderBy: { receivedAt: "desc" },
+    include: { capturedBy: { select: { name: true } } },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    url: row.url,
+    authorName: row.capturedBy?.name ?? "Sin autor",
+    ownerType: row.ownerType,
+    clientCreatedAt: row.clientCreatedAt.toISOString(),
+    receivedAt: row.receivedAt.toISOString(),
+  }));
+}
+
 export async function listSupervisors(): Promise<User[]> {
   const rows = await prisma.user.findMany({
     where: { role: "SUPERVISOR" },

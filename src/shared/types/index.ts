@@ -191,6 +191,8 @@ export interface Evidence {
   ownerType: EvidenceOwnerType;
   ownerId: string;
   url: string;
+  /** RNF-14. Supervisor que envio la foto. Null si llego sin sesion. */
+  capturedById: string | null;
   /** CA-05: hora en que se tomo la foto en campo. */
   clientCreatedAt: string;
   receivedAt: string;

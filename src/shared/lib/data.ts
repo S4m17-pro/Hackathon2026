@@ -310,9 +310,12 @@ export async function upsertNovelty(payload: NoveltySyncPayload): Promise<Prisma
  * `ownerClientId` se resuelve segun `ownerType` y se valida que exista.
  * Sin FK en el schema, ese chequeo es lo que evita evidencias colgadas.
  * La `url` la escribe el route handler de fotos de Lewis.
+ * `capturedById` lo fija el servidor con la sesion. Un reintento no cambia
+ * al autor que ya quedo guardado.
  */
 export async function upsertEvidence(
   payload: EvidenceSyncPayload,
+  capturedById: string | null = null,
 ): Promise<PrismaEvidence> {
   const ownerId = await resolveOwnerIdByClientId(payload.ownerType, payload.ownerClientId);
 
@@ -323,6 +326,12 @@ export async function upsertEvidence(
     );
   }
 
+  const existing = await prisma.evidence.findUnique({
+    where: { clientId: payload.clientId },
+    select: { capturedById: true },
+  });
+  const authorId = existing?.capturedById ?? capturedById;
+
   return prisma.evidence.upsert({
     where: { clientId: payload.clientId },
     create: {
@@ -330,9 +339,10 @@ export async function upsertEvidence(
       ownerType: payload.ownerType,
       ownerId,
       url: payload.url,
+      capturedById: authorId,
       clientCreatedAt: toDate(payload.clientCreatedAt, "clientCreatedAt"),
     },
-    update: { ownerType: payload.ownerType, ownerId, url: payload.url },
+    update: { ownerType: payload.ownerType, ownerId, url: payload.url, capturedById: authorId },
   });
 }
 
@@ -779,6 +789,7 @@ export function toEvidenceDTO(evidence: PrismaEvidence): SharedEvidence {
     ownerType: evidence.ownerType,
     ownerId: evidence.ownerId,
     url: evidence.url,
+    capturedById: evidence.capturedById,
     clientCreatedAt: evidence.clientCreatedAt.toISOString(),
     receivedAt: evidence.receivedAt.toISOString(),
     updatedAt: evidence.updatedAt.toISOString(),

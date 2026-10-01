@@ -1,10 +1,12 @@
 import { requireRole } from "@/app/(auth)/session";
+import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
 import { VisitsTable } from "@/features/coordinacion/components/VisitsTable";
 import {
   bogotaToday,
   getDashboardKpis,
   listCostCenters,
+  listEvidenceTrace,
   listSupervisors,
   listVisits,
 } from "@/features/coordinacion/queries";
@@ -24,6 +26,7 @@ export default async function DashboardPage() {
       ) : null}
       <KpiCards items={data.kpis} />
       <VisitsTable rows={data.visits} />
+      <EvidenceTraceTable rows={data.evidence} />
     </main>
   );
 }
@@ -31,7 +34,7 @@ export default async function DashboardPage() {
 async function loadDashboard() {
   try {
     const day = bogotaToday();
-    const [kpis, visits, supervisors, centers] = await Promise.all([
+    const [kpis, visits, supervisors, centers, evidence] = await Promise.all([
       getDashboardKpis(),
       listVisits({
         from: `${day}T00:00:00.000-05:00`,
@@ -39,6 +42,7 @@ async function loadDashboard() {
       }),
       listSupervisors(),
       listCostCenters(),
+      listEvidenceTrace(),
     ]);
 
     const supervisorName = new Map(supervisors.map((person) => [person.id, person.name]));
@@ -77,6 +81,7 @@ async function loadDashboard() {
           status: visit.status,
           checkIn: formatWhen(visit.checkInAt),
         })),
+      evidence,
     };
   } catch {
     return {
@@ -88,6 +93,7 @@ async function loadDashboard() {
         { label: "GPS verificado", value: "—", hint: "Sin conexión a la base" },
       ],
       visits: [],
+      evidence: [],
     };
   }
 }

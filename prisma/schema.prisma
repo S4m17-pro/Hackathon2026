@@ -91,6 +91,7 @@ model User {
   visits        Visit[]
   closedNovelty Novelty[]           @relation("NoveltyClosedBy")
   templates     ChecklistTemplate[] @relation("TemplateAuthor")
+  evidences     Evidence[]          @relation("EvidenceCapturedBy")
 
   @@index([role])
 }
@@ -346,11 +347,16 @@ model Evidence {
   ownerType       EvidenceOwnerType
   ownerId         String
   url             String
+  /// RNF-14. Quien envio la foto. Lo pone el servidor con la sesion,
+  /// no el celular: el payload no puede inventar otro autor.
+  capturedById    String?
+  capturedBy      User?             @relation("EvidenceCapturedBy", fields: [capturedById], references: [id], onDelete: SetNull)
   /// CA-05: hora en que se tomo la foto en campo, no la de subida.
   clientCreatedAt DateTime
   receivedAt      DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
   @@index([ownerType, ownerId])
+  @@index([capturedById])
   @@index([clientCreatedAt])
 }
