@@ -2,7 +2,6 @@ import { requireRole } from "@/app/(auth)/session";
 import { QrScanner } from "@/features/supervision/components/QrScanner";
 import { findTodayVisitClientId } from "@/features/supervision/todayVisit";
 import { listQrPoints } from "@/features/coordinacion/queries";
-import { DEFAULT_SEED_QR_POINTS } from "@/features/supervision/offline/qrLookup";
 
 export default async function EscanearPage() {
   const session = await requireRole("SUPERVISOR");
@@ -23,9 +22,6 @@ export default async function EscanearPage() {
 async function loadCatalog() {
   try {
     const points = await listQrPoints();
-    if (points.length === 0) {
-      return DEFAULT_SEED_QR_POINTS;
-    }
     return points
       .filter((point) => point.isActive)
       .map((point) => ({
@@ -38,8 +34,6 @@ async function loadCatalog() {
         radiusMeters: point.radiusMeters,
       }));
   } catch {
-    // Si no hay conexión al servidor o la base de datos no está disponible,
-    // usamos el catálogo de contingencia con QR-PLAZA-NORTE-1 y los puntos oficiales
-    return DEFAULT_SEED_QR_POINTS;
+    return [];
   }
 }
