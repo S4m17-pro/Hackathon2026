@@ -1,14 +1,15 @@
 "use client";
 
+import { ClipboardList, QrCode, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { cn } from "@/shared/ui/cn";
 
-const tabs = [
-  { href: "/visitas", label: "Visitas" },
-  { href: "/escanear", label: "Escanear" },
+const tabs: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/visitas", label: "Visitas", icon: ClipboardList },
+  { href: "/escanear", label: "Escanear", icon: QrCode },
 ];
 
 export default function SupervisorLayout({ children }: { children: ReactNode }) {
@@ -38,10 +39,11 @@ export default function SupervisorLayout({ children }: { children: ReactNode }) 
                 key={tab.href}
                 href={tab.href}
                 className={cn(
-                  "flex h-16 flex-1 items-center justify-center text-sm font-medium",
+                  "flex h-16 flex-1 flex-col items-center justify-center gap-1 text-xs font-medium",
                   active ? "text-zinc-950" : "text-zinc-400",
                 )}
               >
+                <tab.icon className="size-5" aria-hidden />
                 {tab.label}
               </Link>
             );

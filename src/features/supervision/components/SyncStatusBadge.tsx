@@ -1,5 +1,6 @@
 "use client";
 
+import { Wifi, WifiOff } from "lucide-react";
 import { useEffect } from "react";
 
 import { useSupervisorUiStore } from "@/features/supervision/store";
@@ -34,10 +35,7 @@ export function SyncStatusBadge() {
 
   return (
     <Badge tone={isOnline ? "online" : "offline"}>
-      <span
-        className={isOnline ? "size-1.5 rounded-full bg-lime-600" : "size-1.5 rounded-full bg-amber-600"}
-        aria-hidden
-      />
+      {isOnline ? <Wifi className="size-3.5" aria-hidden /> : <WifiOff className="size-3.5" aria-hidden />}
       {isOnline ? "En línea" : "Sin conexión"}
       <span>· {visibleCount} por enviar</span>
     </Badge>
