@@ -36,9 +36,11 @@ export interface MapScannedQr {
 function MapController({
   centers,
   supervisors,
+  scans,
 }: {
   centers: MapCostCenter[];
   supervisors: MapSupervisor[];
+  scans: MapScannedQr[];
 }) {
   const map = useMap();
 
@@ -63,9 +65,15 @@ function MapController({
       }
     });
 
-    supervisors.forEach((s) => {
-      if (typeof s.lat === "number" && typeof s.lng === "number") {
-        allCoords.push([s.lat, s.lng]);
+    supervisors.forEach((person) => {
+      if (typeof person.lat === "number" && typeof person.lng === "number") {
+        allCoords.push([person.lat, person.lng]);
+      }
+    });
+
+    scans.forEach((scan) => {
+      if (typeof scan.lat === "number" && typeof scan.lng === "number") {
+        allCoords.push([scan.lat, scan.lng]);
       }
     });
 
@@ -74,7 +82,7 @@ function MapController({
     } else if (allCoords.length > 1) {
       map.fitBounds(allCoords, { padding: [50, 50], maxZoom: 15 });
     }
-  }, [centers, supervisors, map]);
+  }, [centers, supervisors, scans, map]);
 
   return null;
 }
@@ -90,19 +98,31 @@ export function SupervisorsMap({
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <div className="relative h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-100 shadow-xs [&_.leaflet-tile]:max-h-none [&_.leaflet-tile]:max-w-none">
+      <style>{`
+        .field-map .leaflet-container {
+          height: 32rem;
+          width: 100%;
+          background: #fff;
+        }
+        .field-map .leaflet-container img.leaflet-tile {
+          max-width: none !important;
+          max-height: none !important;
+        }
+      `}</style>
+      <div className="field-map relative h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200">
         <MapContainer
           center={BOGOTA_CENTER}
           zoom={12}
-          className="h-full w-full"
+          style={{ height: "100%", width: "100%" }}
           scrollWheelZoom
         >
-          <MapController centers={centers} supervisors={supervisors} />
+          <MapController centers={centers} supervisors={supervisors} scans={scans} />
 
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             maxZoom={19}
+            noWrap
           />
 
           {/* Marcadores de Centros de Costo */}

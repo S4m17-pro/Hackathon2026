@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 import { Printer, QrCode, X } from "lucide-react";
@@ -62,6 +63,14 @@ const statusLabel: Record<VisitStatus, string> = {
   CANCELLED: "Cancelada",
 };
 
+const QrLocationPicker = dynamic(
+  () => import("@/features/coordinacion/components/QrLocationPicker").then((mod) => mod.QrLocationPicker),
+  {
+    ssr: false,
+    loading: () => <div className="h-64 w-full rounded-xl border border-zinc-200 bg-white" />,
+  },
+);
+
 const fieldClass =
   "h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-zinc-950";
 
@@ -94,6 +103,9 @@ export function AssignmentBoard({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [selectedQr, setSelectedQr] = useState<AssignmentQrRow | null>(null);
+  const [list, setList] = useState<"visits" | "qr">("visits");
+  const [qrCenterId, setQrCenterId] = useState("");
+  const [qrPoint, setQrPoint] = useState<{ lat: number; lng: number } | null>(null);
 
   function refresh(okMessage: string) {
     setError(null);
@@ -137,15 +149,21 @@ export function AssignmentBoard({
       return;
     }
 
+    if (!qrPoint) {
+      setError("Marca el punto del código en el mapa.");
+      return;
+    }
+
     const radius = Number(data.get("radiusMeters") ?? 50);
+    const marked = qrPoint;
 
     startTransition(async () => {
       const result = await createQrPoint({
         code: String(data.get("code") ?? ""),
         areaName: String(data.get("areaName") ?? ""),
         costCenterId,
-        lat: center.lat,
-        lng: center.lng,
+        lat: marked.lat,
+        lng: marked.lng,
         radiusMeters: Number.isFinite(radius) && radius > 0 ? radius : 50,
       });
 
@@ -156,6 +174,8 @@ export function AssignmentBoard({
       }
 
       form.reset();
+      setQrCenterId("");
+      setQrPoint(null);
       refresh("Código QR creado.");
     });
   }
@@ -251,7 +271,7 @@ export function AssignmentBoard({
         <Card>
           <CardHeader>
             <CardTitle>Nuevo código QR</CardTitle>
-            <CardDescription>Usa la ubicación del centro. El radio por defecto es 50 m.</CardDescription>
+            <CardDescription>Elige el centro y marca el punto exacto en el mapa.</CardDescription>
           </CardHeader>
           <form onSubmit={onCreateQr}>
             <CardContent>
@@ -265,7 +285,16 @@ export function AssignmentBoard({
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Centro de costo
-                <select name="costCenterId" required className={fieldClass} defaultValue="">
+                <select
+                  name="costCenterId"
+                  required
+                  className={fieldClass}
+                  value={qrCenterId}
+                  onChange={(event) => {
+                    setQrCenterId(event.target.value);
+                    setQrPoint(null);
+                  }}
+                >
                   <option value="" disabled>
                     Elige un centro
                   </option>
@@ -276,11 +305,21 @@ export function AssignmentBoard({
                   ))}
                 </select>
               </label>
+              <QrLocationPicker
+                center={centers.find((center) => center.id === qrCenterId) ?? null}
+                point={qrPoint}
+                onPick={(lat, lng) => setQrPoint({ lat, lng })}
+              />
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Radio en metros
                 <Input name="radiusMeters" type="number" min={1} defaultValue={50} />
               </label>
-              <Button type="submit" variant="contrast" className="w-full" disabled={centers.length === 0 || pending}>
+              <Button
+                type="submit"
+                variant="contrast"
+                className="w-full"
+                disabled={centers.length === 0 || pending || qrPoint === null}
+              >
                 Crear QR
               </Button>
             </CardContent>
@@ -288,6 +327,28 @@ export function AssignmentBoard({
         </Card>
       </div>
 
+      <div className="flex w-fit gap-1 rounded-xl bg-zinc-200 p-1">
+        <button
+          type="button"
+          onClick={() => setList("visits")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            list === "visits" ? "bg-white text-zinc-950" : "text-zinc-600"
+          }`}
+        >
+          Visitas asignadas ({visits.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setList("qr")}
+          className={`rounded-lg px-4 py-2 text-sm font-medium ${
+            list === "qr" ? "bg-white text-zinc-950" : "text-zinc-600"
+          }`}
+        >
+          Códigos QR ({qrPoints.length})
+        </button>
+      </div>
+
+      {list === "visits" ? (
       <Card>
         <CardHeader>
           <CardTitle>Visitas asignadas</CardTitle>
@@ -338,7 +399,7 @@ export function AssignmentBoard({
           </Table>
         </CardContent>
       </Card>
-
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle>Códigos QR</CardTitle>
@@ -413,6 +474,7 @@ export function AssignmentBoard({
           </Table>
         </CardContent>
       </Card>
+      )}
 
       {/* Modal para Visualizar e Imprimir Código QR */}
       {selectedQr ? (
