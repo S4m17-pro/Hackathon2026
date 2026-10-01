@@ -1,1 +1,6 @@
 @import "tailwindcss";
+
+.maplibregl-map,
+.maplibregl-canvas {
+  max-width: none !important;
+}
