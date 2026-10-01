@@ -10,6 +10,7 @@ const variants = {
 } as const;
 
 const sizes = {
+  sm: "h-8 px-3 text-xs",
   default: "h-10 px-4 text-sm",
   lg: "h-14 px-6 text-base",
 } as const;

@@ -2,9 +2,10 @@
 
 import { ClipboardList, QrCode, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { signOut } from "@/app/(auth)/login/actions";
 import { cn } from "@/shared/ui/cn";
 
 const tabs: { href: string; label: string; icon: LucideIcon }[] = [
@@ -14,6 +15,7 @@ const tabs: { href: string; label: string; icon: LucideIcon }[] = [
 
 export default function SupervisorLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <>
@@ -48,6 +50,18 @@ export default function SupervisorLayout({ children }: { children: ReactNode }) 
               </Link>
             );
           })}
+          <button
+            type="button"
+            className="px-3 text-xs text-zinc-400"
+            onClick={() => {
+              void signOut().then(() => {
+                router.push("/login");
+                router.refresh();
+              });
+            }}
+          >
+            Salir
+          </button>
         </nav>
       </div>
     </>

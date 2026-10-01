@@ -3,10 +3,9 @@
 import { Wifi, WifiOff } from "lucide-react";
 import { useEffect } from "react";
 
+import { refreshPendingCount } from "@/features/supervision/offline/outbox";
 import { useSupervisorUiStore } from "@/features/supervision/store";
 import { Badge } from "@/shared/ui/badge";
-
-const MOCK_PENDING_COUNT = 3;
 
 export function SyncStatusBadge() {
   const isOnline = useSupervisorUiStore((state) => state.isOnline);
@@ -26,18 +25,14 @@ export function SyncStatusBadge() {
   }, [setOnline]);
 
   useEffect(() => {
-    if (useSupervisorUiStore.getState().pendingCount === 0) {
-      setPendingCount(MOCK_PENDING_COUNT);
-    }
+    void refreshPendingCount().then((count) => setPendingCount(count));
   }, [setPendingCount]);
-
-  const visibleCount = pendingCount > 0 ? pendingCount : MOCK_PENDING_COUNT;
 
   return (
     <Badge tone={isOnline ? "online" : "offline"}>
       {isOnline ? <Wifi className="size-3.5" aria-hidden /> : <WifiOff className="size-3.5" aria-hidden />}
       {isOnline ? "En línea" : "Sin conexión"}
-      <span>· {visibleCount} por enviar</span>
+      <span>· {pendingCount} por enviar</span>
     </Badge>
   );
 }

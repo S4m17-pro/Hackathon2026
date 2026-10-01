@@ -2,6 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
+import { Printer, QrCode, X } from "lucide-react";
+
+import { QrCodeImage } from "@/shared/ui/QrCodeImage";
 
 import {
   cancelVisit,
@@ -90,6 +93,7 @@ export function AssignmentBoard({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [selectedQr, setSelectedQr] = useState<AssignmentQrRow | null>(null);
 
   function refresh(okMessage: string) {
     setError(null);
@@ -344,6 +348,7 @@ export function AssignmentBoard({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-16">QR</TableHead>
                 <TableHead>Código</TableHead>
                 <TableHead>Área</TableHead>
                 <TableHead>Centro</TableHead>
@@ -355,12 +360,22 @@ export function AssignmentBoard({
             <TableBody>
               {qrPoints.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6}>Todavía no hay códigos.</TableCell>
+                  <TableCell colSpan={7}>Todavía no hay códigos.</TableCell>
                 </TableRow>
               ) : (
                 qrPoints.map((point) => (
                   <TableRow key={point.id}>
-                    <TableCell className="font-medium">{point.code}</TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedQr(point)}
+                        className="group relative flex cursor-pointer items-center justify-center rounded border border-zinc-200 bg-white p-1 shadow-2xs transition-transform hover:scale-105 hover:border-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-950"
+                        title="Clic para ampliar o imprimir código QR"
+                      >
+                        <QrCodeImage value={point.code} size={48} margin={1} />
+                      </button>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs font-semibold">{point.code}</TableCell>
                     <TableCell>{point.areaName}</TableCell>
                     <TableCell>{point.centerName}</TableCell>
                     <TableCell>{point.radiusMeters} m</TableCell>
@@ -370,13 +385,26 @@ export function AssignmentBoard({
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="outline"
-                        onClick={() => onToggleQr(point.id, point.isActive)}
-                        disabled={pending}
-                      >
-                        {point.isActive ? "Desactivar" : "Activar"}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setSelectedQr(point)}
+                          className="gap-1.5 text-xs"
+                        >
+                          <QrCode className="size-3.5" aria-hidden />
+                          Ver / Imprimir
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onToggleQr(point.id, point.isActive)}
+                          disabled={pending}
+                          className="text-xs"
+                        >
+                          {point.isActive ? "Desactivar" : "Activar"}
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
@@ -385,6 +413,101 @@ export function AssignmentBoard({
           </Table>
         </CardContent>
       </Card>
+
+      {/* Modal para Visualizar e Imprimir Código QR */}
+      {selectedQr ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
+          onClick={() => setSelectedQr(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            id="printable-qr-modal"
+            className="flex w-full max-w-sm flex-col items-center gap-5 rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex w-full items-center justify-between border-b border-zinc-100 pb-3 no-print">
+              <div>
+                <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+                  Etiqueta de Campo
+                </p>
+                <h3 className="font-semibold text-zinc-950">{selectedQr.areaName}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedQr(null)}
+                className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-center gap-3 py-2 text-center">
+              <div className="rounded-xl border border-zinc-200 bg-white p-3 shadow-md">
+                <QrCodeImage value={selectedQr.code} size={200} margin={2} />
+              </div>
+              <div>
+                <p className="font-mono text-lg font-bold tracking-wider text-zinc-950">
+                  {selectedQr.code}
+                </p>
+                <p className="text-xs text-zinc-500">{selectedQr.centerName}</p>
+                <p className="mt-1 text-[11px] text-zinc-400">
+                  Radio de tolerancia: {selectedQr.radiusMeters} metros
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-xl bg-zinc-50 p-3 text-center text-xs text-zinc-500 border border-zinc-200/80 leading-relaxed">
+              El código QR contiene únicamente el texto <strong>&quot;{selectedQr.code}&quot;</strong>.
+              Las coordenadas y el área se resuelven automáticamente en el dispositivo al escanear.
+            </div>
+
+            <div className="flex w-full gap-2 pt-1 no-print">
+              <Button
+                variant="contrast"
+                className="flex-1 gap-2"
+                onClick={() => window.print()}
+              >
+                <Printer className="size-4" aria-hidden />
+                Imprimir QR
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setSelectedQr(null)}
+              >
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      <style jsx global>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-qr-modal,
+          #printable-qr-modal * {
+            visibility: visible !important;
+          }
+          #printable-qr-modal {
+            position: fixed !important;
+            left: 50% !important;
+            top: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            border: 1px solid #e4e4e7 !important;
+            box-shadow: none !important;
+            width: auto !important;
+            max-width: 400px !important;
+            padding: 24px !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
