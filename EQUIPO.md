@@ -229,7 +229,34 @@ Login (RF-AUT-01). Juan ya dejo el hash con scrypt en `src/shared/lib/password.t
 
 Usá `verifyPassword(plain, stored)` de ahi. Nunca compares contrasenas con `===` y nunca mandes el `passwordHash` al cliente: el tipo `User` de `shared/types` no lo expone a proposito.
 
-Datos de prueba para desarrollar: `npm run db:seed` deja 2 usuarios, 3 centros de costo con direccion, 9 QR points activos con radio 50 m (codigos `QR-PLAZA-NORTE-1`, etc.), 1 plantilla de checklist de 6 items y 3 visitas asignadas con esa plantilla.
+## Datos de operacion para desarrollar y para la demo
+
+`npm run db:seed` siembra un mes de operacion sintetica pero coherente, no tres filas de prueba. Es idempotente: borra la operacion y la reconstruye, asi que se puede volver a correr las veces que haga falta.
+
+Que queda en la base:
+
+| Tabla | Volumen | Para que sirve |
+| --- | --- | --- |
+| `User` | 6 supervisores + 2 coordinadores | RF-PAN-01 supervisores activos y asignados |
+| `CostCenter` | 6, con direccion y coordenadas | RF-ASI-02, mapa |
+| `QrPoint` | 18 (2 inactivos) | RF-QR-02, hoja imprimible |
+| `ChecklistTemplate` | 3, con 14 items en total | RF-SUP-01, RF-ASI-03 |
+| `Visit` | ~100 en 30 dias: ~60 completadas, ~30 pendientes, 3 en ruta, ~7 canceladas | RF-PAN-01, historial, KPIs |
+| `QrScan` | ~120, 20 de ellos no verificados | RF-QR-03 |
+| `Novelty` | ~21 con los cuatro estados y prioridades | RF-NOV-02, bandeja de alertas |
+| `Evidence` | ~120 sobre los cuatro duenos | RF-PAN-05 galeria |
+| `ChecklistItemResult` | ~255 con items sin cumplir y sin marcar | RF-PAN-07, CA-02 |
+
+Lo que el seed garantiza, porque el panel depende de ello:
+
+- `clientCreatedAt` nunca es posterior a `receivedAt`. Lo historico llega con minutos u horas de atraso (RF-OFF-04), no todo con la hora del seed.
+- Las visitas de hoy incluyen dos supervisores `IN_PROGRESS`, para que el mapa y la bandeja de rutas tengan algo vivo que mostrar.
+- Hay visitas con check-in fuera de rango, visitas demoradas y visitas canceladas. Los tres son estados que el panel tiene que Differenciar.
+- Los KPIs no dan 100 %: el checklist queda en ~64 % y el GPS verificado en ~86 %. Un panel donde todo esta perfecto no se puede demoear.
+- Toda novedad `RESOLVED` trae `closedAt`, `closedById` y `resolutionAction` (CA-07).
+- Ninguna evidencia queda huerfana: los cuatro `ownerType` resuelven a una fila real, que es la unica red que hay porque `Evidence` no tiene FK.
+
+Sobre el checklist (RF-SUP-01/02, CA-02):
 
 Sobre el checklist (RF-SUP-01/02, CA-02):
 
