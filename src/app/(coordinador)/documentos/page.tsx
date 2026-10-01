@@ -10,7 +10,7 @@ export default async function DocumentosPage() {
         <p className="text-xs tracking-[0.16em] text-zinc-500 uppercase">Integridad</p>
         <h1 className="text-3xl font-semibold">Validar documento</h1>
         <p className="max-w-2xl text-sm text-zinc-500">
-          Groq compara el texto con novedades y notas ya guardadas. Marca duplicado, similar u original.
+          Groq compara un texto pegado, o un PDF, DOCX o TXT, con las novedades y notas ya guardadas.
         </p>
       </header>
       <DocumentCheckForm />

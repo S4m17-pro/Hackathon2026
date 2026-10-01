@@ -26,6 +26,7 @@ const tone: Record<string, string> = {
 
 export function DocumentCheckForm() {
   const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
 
@@ -34,11 +35,16 @@ export function DocumentCheckForm() {
     setPending(true);
     setResult(null);
 
+    const body = new FormData();
+    body.set("text", text);
+    if (file) {
+      body.set("file", file);
+    }
+
     try {
       const response = await fetch("/api/documents/check", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body,
       });
       const data = (await response.json()) as CheckResult;
       setResult(data);
@@ -50,6 +56,7 @@ export function DocumentCheckForm() {
   }
 
   const verdict = result?.verdict ?? "";
+  const ready = text.trim().length >= 20 || file !== null;
 
   return (
     <form className="flex max-w-3xl flex-col gap-4" onSubmit={(event) => void onSubmit(event)}>
@@ -58,14 +65,21 @@ export function DocumentCheckForm() {
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}
-          rows={10}
-          required
-          minLength={20}
-          placeholder="Pega aquí el informe, la novedad o la descripción que quieres contrastar con lo ya registrado."
+          rows={8}
+          placeholder="Pega el informe o la novedad. También puedes subir el archivo abajo."
           className="rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm font-normal"
         />
       </label>
-      <Button type="submit" disabled={pending || text.trim().length < 20} className="w-fit">
+      <label className="flex flex-col gap-2 text-sm font-medium">
+        Archivo PDF, DOCX o TXT
+        <input
+          type="file"
+          accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+          onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          className="text-sm font-normal"
+        />
+      </label>
+      <Button type="submit" disabled={pending || !ready} className="w-fit">
         {pending ? "Revisando…" : "Validar con Groq"}
       </Button>
 
