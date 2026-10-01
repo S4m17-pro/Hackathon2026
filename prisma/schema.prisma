@@ -1,5 +1,10 @@
+// Contrato de datos. Este archivo es de Juan: nadie mas lo edita.
+// Si falta un campo, lo agrega Juan al schema y a `src/shared/types/index.ts`.
+//
 // Idempotencia offline: las entidades creadas en el dispositivo usan `clientId`
 // (UUID local) como clave de `prisma.upsert`. El `id` lo asigna el servidor.
+// Los helpers de `src/shared/lib/data.ts` son la unica forma de escribir:
+// respetan esta regla y la de no pisar campos que asigna el servidor.
 
 generator client {
   provider = "prisma-client-js"
@@ -151,8 +156,11 @@ model Novelty {
   @@index([clientCreatedAt])
 }
 
-/// Dueño polimórfico: `ownerType` + `ownerId` apuntan al `id` de servidor
-/// de Visit, Novelty o QrScan. No hay FK de Prisma a propósito.
+/// Dueño polimorfico: `ownerType` + `ownerId` apuntan al `id` de servidor
+/// de Visit, Novelty o QrScan. No hay FK de Prisma a proposito.
+///
+/// Sin FK, nada impide un `ownerId` colgado. La validacion es
+/// responsabilidad de `upsertEvidence` en `src/shared/lib/data.ts`.
 model Evidence {
   id        String            @id @default(cuid())
   clientId  String            @unique

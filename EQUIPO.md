@@ -63,9 +63,13 @@ Puede editar:
 
 - `prisma/schema.prisma`
 - `prisma/migrations/`
+- `prisma/seed.ts`
 - `docker-compose.yml`
 - `.env.example`
+- `package.json`, `tsconfig.json`, `next.config.ts`, `postcss.config.mjs`, `.gitignore`
+- `src/app/globals.css`
 - `src/shared/lib/prisma.ts`
+- `src/shared/lib/data.ts`
 - `src/shared/types/index.ts`
 - Helpers de acceso a datos con `upsert` por `clientId`, para que Lewis y Sebastian no escriban Prisma suelto ni se pisen el schema
 
@@ -74,6 +78,8 @@ No puede editar:
 - `src/features/supervision/actions.ts` ni `src/app/api/` (Lewis)
 - `src/features/coordinacion/actions.ts` ni `src/features/coordinacion/queries.ts` (Sebastian)
 - Pantallas, componentes, Dexie, Zustand y `src/shared/ui/` (Samuel)
+
+Sobre `src/app/layout.tsx`: es de Samuel, pero Juan lo toco una vez para agregar el `import "./globals.css"`. Ese import no se borra.
 
 Entregable: schema migrado, tipos congelados, MySQL levantado y helpers de upsert listos **antes** de que los demás abran rama. Al final, empalme en el orden Lewis, Sebastian, Samuel.
 
@@ -94,11 +100,24 @@ Puede editar:
 
 No puede editar:
 
-- `prisma/schema.prisma`, migraciones, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts` (Juan)
+- `prisma/schema.prisma`, migraciones, `prisma/seed.ts`, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts`, `src/shared/lib/data.ts` (Juan)
 - `src/features/coordinacion/` (Sebastian)
 - `src/features/supervision/offline/`, `store.ts`, `components/`, pantallas y `src/shared/ui/` (Samuel)
 
-Entregable: `syncOperation` hace `prisma.upsert` por `clientId` usando los helpers de Juan. Resuelve `visitClientId` y `ownerClientId` al `id` de servidor. El route handler de fotos guarda el archivo y devuelve la `url` que luego entra en la evidencia.
+Entregable: `syncOperation` despacha al helper de Juan que corresponda según `op.type` y devuelve `SyncOperationResult`. El route handler de fotos guarda el archivo y devuelve la `url` que luego entra en la evidencia.
+
+Helpers ya escritos en `src/shared/lib/data.ts`. No los reimplementes:
+
+| `op.type` | Helper |
+| --- | --- |
+| `visit.upsert` | `upsertVisit(payload)` |
+| `qrScan.upsert` | `upsertQrScan(payload)` |
+| `novelty.upsert` | `upsertNovelty(payload)` |
+| `evidence.upsert` | `upsertEvidence(payload)` |
+
+Los helpers ya resuelven `visitClientId` y `ownerClientId` al `id` de servidor y tiran `DataError` con `PARENT_NOT_FOUND` o `OWNER_NOT_FOUND` si el padre no existe. `syncOperation` traduce ese `DataError` a `SyncOperationResult` con `ok: false` y el `error` como mensaje, para que el outbox pueda reintentar. Un padre ausente no es un error de codigo: no lo rechaces con excepcion, dejalo para el reintento.
+
+Para convertir filas de Prisma a los tipos compartidos estan `toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO` y `toEvidenceDTO` en el mismo archivo.
 
 No reescribas Dexie ni las pantallas. Samuel importa tu action; no la implementa.
 
@@ -119,11 +138,18 @@ Ahí viven la asignación de visitas, la gestión de códigos QR, los KPIs y las
 
 No puede editar:
 
-- `prisma/schema.prisma`, migraciones, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts` (Juan)
+- `prisma/schema.prisma`, migraciones, `prisma/seed.ts`, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts`, `src/shared/lib/data.ts` (Juan)
 - `src/features/supervision/actions.ts` ni `src/app/api/` (Lewis)
 - Pantallas, mapas, tablas, Dexie y `src/shared/ui/` (Samuel)
 
 Entregable: actions de asignación y QR, y queries listas para que el dashboard las llame. `queries.ts` no lleva `"use server"`: son lecturas importadas desde Server Components. Las mutaciones sí van en `actions.ts` con `"use server"`.
+
+Dos cosas que cambian como se consulta la base:
+
+- Las lecturas que devuelves al dashboard van envueltas en los DTO de Juan (`toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO`, `toEvidenceDTO`, en `src/shared/lib/data.ts`). Así el cliente recibe fechas ISO-8601 y no objetos `Date` de Prisma.
+- `prisma` se importa desde `@/shared/lib/prisma`. Es el cliente con singleton, no instancies `PrismaClient`.
+
+Si una query necesita logica de negocio que no sea lectura, va en `actions.ts`, no en `queries.ts`.
 
 No toques la UI. Samuel importa tus funciones desde las páginas del coordinador.
 
@@ -149,11 +175,18 @@ Puede editar:
 
 No puede editar:
 
-- `prisma/schema.prisma`, migraciones, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts` (Juan)
+- `prisma/schema.prisma`, migraciones, `prisma/seed.ts`, `src/shared/types/index.ts`, `src/shared/lib/prisma.ts`, `src/shared/lib/data.ts` (Juan)
 - `src/features/supervision/actions.ts` ni `src/app/api/` (Lewis)
 - `src/features/coordinacion/actions.ts` ni `src/features/coordinacion/queries.ts` (Sebastian)
 
 Entregable: pantallas mobile-first del supervisor (visitas, escáner, evidencias por QR) y panel del coordinador (dashboard, asignaciones, novedades). El offline es tuyo: outbox en Dexie, fotos locales, caché de QR y Haversine. Zustand solo para estado de UI.
+
+Dos notas sobre el arranque, ya resuelto por Juan:
+
+- `src/app/globals.css` ya importa Tailwind v4 y `src/app/layout.tsx` ya lo importa. Usa clases utilitarias, no hace falta CSS aparte.
+- Tailwind no trae los estilos de `<a>`, `<button>` ni `<h1>` por defecto. Si un control te sale sin fondo ni padding, es falta de clases, no un problema de configuracion.
+
+Datos de prueba para desarrollar: `npm run db:seed` deja 2 usuarios, 3 centros de costo, 9 QR points (codigos `QR-PLAZA-NORTE-1`, etc.) y 3 visitas asignadas al supervisor.
 
 Importa `syncOperation` y las queries del coordinador. No reescribas esas funciones. Separa UI (`"use client"`) de servidor (`"use server"`).
 
@@ -173,6 +206,8 @@ Checklist:
 
 - Cada entidad creada en el dispositivo hace `upsert` por `clientId` (`Visit`, `QrScan`, `Novelty`, `Evidence`).
 - `visitClientId` y `ownerClientId` quedan resueltos a `id` de servidor antes de guardar hijos.
+- `syncOperation` traduce `DataError` a `SyncOperationResult` con `ok: false` (no lanza excepciones para padres ausentes).
 - Las páginas importan las actions y las queries reales, no stubs.
 - `package.json` y el lockfile se instalan una sola vez, con las dependencias anotadas en los tres PR.
 - Samuel prueba en `main`: login, visitas, escáner QR y dashboard.
+- El build (`npm run build`) pasa y `npx tsc --noEmit` sin errores después de todos los merges.
