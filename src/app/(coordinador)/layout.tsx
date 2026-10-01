@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarCheck, LayoutDashboard, TriangleAlert, type LucideIcon } from "lucide-react";
+import { CalendarCheck, FileSpreadsheet, LayoutDashboard, TriangleAlert, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -12,6 +12,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/asignaciones", label: "Asignaciones", icon: CalendarCheck },
   { href: "/novedades", label: "Novedades", icon: TriangleAlert },
+  { href: "/reportes", label: "Reportes", icon: FileSpreadsheet },
 ];
 
 export default function CoordinadorLayout({ children }: { children: ReactNode }) {

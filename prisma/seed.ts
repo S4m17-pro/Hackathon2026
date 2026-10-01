@@ -99,12 +99,17 @@ const TODAY_MIDNIGHT = bogotaTodayMidnight();
 /**
  * Un instante en Bogota. `dayOffset` cuenta dias desde hoy: -30 es hace un
  * mes, +7 es la proxima semana.
+ *
+ * `TODAY_MIDNIGHT` ya es un instante absoluto (medianoche de Bogota, que en UTC
+ * son las 05:00). Sumarle horas de reloj local lo lleva a la hora pedida. No
+ * hay que volver a sumar el desfase: hacerlo correria todo cinco horas hacia
+ * adelante y volveria la jornada "de hoy" en una jornada que todavia no ocurrio.
  */
 function bogotaDate(dayOffset: number, hour: number, minute = 0): Date {
   return new Date(
     TODAY_MIDNIGHT.getTime() +
       dayOffset * 86_400_000 +
-      (hour * 60 + minute + BOGOTA_OFFSET_HOURS * 60) * 60_000,
+      (hour * 60 + minute) * 60_000,
   );
 }
 
@@ -779,9 +784,7 @@ async function main(): Promise<void> {
 
   /** Minutos transcurridos desde la medianoche de Bogota de hoy. */
   function bogotaMinutesNow(): number {
-    const shifted = new Date(nowMs + BOGOTA_OFFSET_HOURS * HOUR);
-
-    return shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+    return Math.floor((nowMs - TODAY_MIDNIGHT.getTime()) / 60_000);
   }
 
   /**
@@ -793,7 +796,7 @@ async function main(): Promise<void> {
     return new Date(
       TODAY_MIDNIGHT.getTime() +
         dayOffset * 86_400_000 +
-        (minutesFromMidnight + BOGOTA_OFFSET_HOURS * 60) * 60_000,
+        minutesFromMidnight * 60_000,
     );
   }
 
@@ -804,20 +807,34 @@ async function main(): Promise<void> {
    * hecho que la origino. Si se calculara desde el evento padre, una foto
    * tomada un minuto despues del check-out "viajaria" recibida antes de
    * tomarse, violando la regla 5.
+   *
+   * RNF-14: la foto la subio el supervisor de la ruta. En produccion lo
+   * pone el servidor desde la sesion (`upsertEvidence`), asi que el seed lo
+   * fija igual: autor y dueno de la visita son la misma persona.
    */
   function pushEvidence(input: {
     ownerType: "VISIT" | "NOVELTY" | "QR_SCAN" | "CHECKLIST_ITEM";
     ownerId: string;
     url: string;
     clientCreatedAt: Date;
+    capturedById: string;
   }): void {
+    // Ni la toma ni la recepcion pueden caer en el futuro. Una visita que
+    // acaba de cerrarse puede tener el check-out unos minutos por delante del
+    // reloj del seed, y una foto "tomada" despues de eso seria imposible.
+    const takenAt = new Date(Math.min(input.clientCreatedAt.getTime(), nowMs - MINUTE));
+    const receivedAt = new Date(
+      Math.min(takenAt.getTime() + syncLatencyMs(), nowMs),
+    );
+
     createdEvidence.push({
       clientId: `demo-e-${evidenceSequence++}`,
       ownerType: input.ownerType,
       ownerId: input.ownerId,
       url: input.url,
-      clientCreatedAt: input.clientCreatedAt,
-      receivedAt: new Date(input.clientCreatedAt.getTime() + syncLatencyMs()),
+      clientCreatedAt: takenAt,
+      receivedAt,
+      capturedById: input.capturedById,
     });
 
     stats.evidenceByOwner[input.ownerType] += 1;
@@ -845,17 +862,37 @@ async function main(): Promise<void> {
         ? bogotaInstant(0, Math.max(7 * 60, bogotaMinutesNow() - randInt(30, 95)))
         : bogotaDate(day, hour, randInt(0, 45));
       const onRoute = forceOnRoute || (day === 0 && hour <= bogotaMinutesNow() / 60 && chance(0.2));
-      const status = onRoute ? "IN_PROGRESS" : statusForDay(day);
+      const proposed = onRoute ? "IN_PROGRESS" : statusForDay(day);
 
       // --- Tiempos de campo ---
-      const started = status === "COMPLETED" || status === "IN_PROGRESS";
-      const lateStart = started && chance(0.14); // RF-PAN-08: visita demorada
-      const checkInAt = started ? addMinutes(scheduledAt, lateStart ? randInt(35, 140) : randInt(1, 22)) : null;
+      const lateStart = chance(0.14); // RF-PAN-08: visita demorada
+      const tentativeCheckIn = addMinutes(
+        scheduledAt,
+        lateStart ? randInt(35, 140) : randInt(1, 22),
+      );
+
+      // Una visita no puede haberse completado antes de su check-in, y el
+      // check-in no puede estar en el futuro. Si el turno caia mas tarde que
+      // la hora actual, la visita sigue pendiente: no se Fabrica un pasado que
+      // todavia no ocurrio.
+      const afterCheckIn =
+        proposed !== "ASSIGNED" && tentativeCheckIn.getTime() > nowMs - 5 * MINUTE
+          ? ("ASSIGNED" as const)
+          : proposed;
+      const started = afterCheckIn === "COMPLETED" || afterCheckIn === "IN_PROGRESS";
+      const checkInAt = started ? tentativeCheckIn : null;
 
       // Una de cada veinte se alarga: son las que aparecen como demoradas en
       // el reporte de duracion.
       const duration = chance(0.05) ? randInt(150, 260) : randInt(35, 110);
-      const checkOutAt = checkInAt !== null && status === "COMPLETED" ? addMinutes(checkInAt, duration) : null;
+      const tentativeCheckOut = checkInAt !== null ? addMinutes(checkInAt, duration) : null;
+      // Igual con el cierre: una visita terminada despues de "ahora" sigue en
+      // ruta, no completada.
+      const status =
+        tentativeCheckOut !== null && tentativeCheckOut.getTime() > nowMs
+          ? ("IN_PROGRESS" as const)
+          : afterCheckIn;
+      const checkOutAt = status === "COMPLETED" ? tentativeCheckOut : null;
 
       const checkInGeo = checkInAt === null ? NO_GEO : visitGeo(center);
       const checkOutGeo = checkOutAt === null ? NO_GEO : visitGeo(center);
@@ -962,6 +999,7 @@ async function main(): Promise<void> {
               ownerId: scan.id,
               url: `/uploads/demo/escaneo-${scanSeq}.jpg`,
               clientCreatedAt: new Date(scanAt.getTime() + randInt(10, 90) * 1000),
+              capturedById: supervisor.id,
             });
           }
         }
@@ -1018,6 +1056,7 @@ async function main(): Promise<void> {
               ownerId: result.id,
               url: `/uploads/demo/checklist-${visitSeq}-${index + 1}.jpg`,
               clientCreatedAt: new Date(markedAt.getTime() + randInt(30, 240) * 1000),
+              capturedById: supervisor.id,
             });
           }
         }
@@ -1036,6 +1075,7 @@ async function main(): Promise<void> {
             ownerId: visit.id,
             url: `/uploads/demo/visita-${visitSeq}-${index + 1}.jpg`,
             clientCreatedAt: new Date(checkInAt.getTime() + randInt(1, duration) * MINUTE),
+            capturedById: supervisor.id,
           });
         }
       }
@@ -1112,6 +1152,7 @@ async function main(): Promise<void> {
               ownerId: novelty.id,
               url: `/uploads/demo/novedad-${noveltySequence}-${index + 1}.jpg`,
               clientCreatedAt: new Date(noveltyAt.getTime() + randInt(10, 180) * 1000),
+              capturedById: supervisor.id,
             });
           }
         }
