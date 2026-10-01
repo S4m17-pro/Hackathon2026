@@ -2,9 +2,10 @@
 
 import { CalendarCheck, LayoutDashboard, TriangleAlert, type LucideIcon } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { signOut } from "@/app/(auth)/login/actions";
 import { cn } from "@/shared/ui/cn";
 
 const links: { href: string; label: string; icon: LucideIcon }[] = [
@@ -15,6 +16,7 @@ const links: { href: string; label: string; icon: LucideIcon }[] = [
 
 export default function CoordinadorLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <>
@@ -52,6 +54,18 @@ export default function CoordinadorLayout({ children }: { children: ReactNode })
               );
             })}
           </nav>
+          <button
+            type="button"
+            className="mt-auto text-left text-sm text-zinc-400"
+            onClick={() => {
+              void signOut().then(() => {
+                router.push("/login");
+                router.refresh();
+              });
+            }}
+          >
+            Salir
+          </button>
         </aside>
         <div className="min-w-0 flex-1">{children}</div>
       </div>

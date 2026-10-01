@@ -1,3 +1,4 @@
+import { requireRole } from "@/app/(auth)/session";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
 import { VisitsTable } from "@/features/coordinacion/components/VisitsTable";
 import {
@@ -9,6 +10,7 @@ import {
 } from "@/features/coordinacion/queries";
 
 export default async function DashboardPage() {
+  await requireRole("COORDINADOR");
   const data = await loadDashboard();
 
   return (

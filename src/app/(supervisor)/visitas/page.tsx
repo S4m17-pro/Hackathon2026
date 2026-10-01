@@ -1,8 +1,11 @@
+import { requireRole } from "@/app/(auth)/session";
 import { CheckInButton } from "@/features/supervision/components/CheckInButton";
+import { SupervisorCatalogPreloader } from "@/features/supervision/components/SupervisorCatalogPreloader";
 import { SyncStatusBadge } from "@/features/supervision/components/SyncStatusBadge";
 import {
   bogotaToday,
   listCostCenters,
+  listQrPoints,
   listSupervisors,
   listVisits,
 } from "@/features/coordinacion/queries";
@@ -17,10 +20,17 @@ const statusLabel: Record<VisitStatus, string> = {
 };
 
 export default async function VisitasPage() {
-  const data = await loadTodayVisits();
+  const session = await requireRole("SUPERVISOR");
+  const [data, qrCatalog] = await Promise.all([
+    loadTodayVisits(session.id),
+    loadActiveQrPoints(),
+  ]);
 
   return (
     <main className="flex flex-col gap-4 p-4">
+      {/* Precarga automática en Dexie para garantizar disponibilidad 100% offline */}
+      <SupervisorCatalogPreloader points={qrCatalog} />
+
       <header className="flex items-center justify-between gap-3">
         <div>
           <p className="text-xs tracking-wide text-zinc-500 uppercase">Hoy</p>
@@ -55,11 +65,31 @@ export default async function VisitasPage() {
   );
 }
 
-async function loadTodayVisits() {
+async function loadActiveQrPoints() {
+  try {
+    const points = await listQrPoints();
+    return points
+      .filter((point) => point.isActive)
+      .map((point) => ({
+        code: point.code,
+        id: point.id,
+        costCenterId: point.costCenterId,
+        areaName: point.areaName,
+        lat: point.lat,
+        lng: point.lng,
+        radiusMeters: point.radiusMeters,
+      }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadTodayVisits(supervisorId: string) {
   try {
     const day = bogotaToday();
     const [visits, supervisors, centers] = await Promise.all([
       listVisits({
+        supervisorId,
         from: `${day}T00:00:00.000-05:00`,
         to: `${day}T23:59:59.999-05:00`,
       }),

@@ -29,7 +29,15 @@ function ownerKey(code: string): string {
   return `qr:${code}`;
 }
 
-export function AreaEvidencePanel({ code }: { code: string }) {
+export function AreaEvidencePanel({
+  code,
+  visitClientId,
+  scanClientId,
+}: {
+  code: string;
+  visitClientId: string | null;
+  scanClientId: string | null;
+}) {
   const [point, setPoint] = useState<CachedQrPoint | null>(null);
   const [photos, setPhotos] = useState<LocalPreview[]>([]);
   const [priority, setPriority] = useState<NoveltyPriority>("MEDIUM");
@@ -109,16 +117,22 @@ export function AreaEvidencePanel({ code }: { code: string }) {
       createdAt: clientCreatedAt,
     });
 
-    await enqueueEvidence({
-      clientId,
-      ownerType: "QR_SCAN",
-      ownerClientId: ownerKey(code),
-      url: "",
-      clientCreatedAt,
-    });
+    if (scanClientId) {
+      await enqueueEvidence({
+        clientId,
+        ownerType: "QR_SCAN",
+        ownerClientId: scanClientId,
+        url: "",
+        clientCreatedAt,
+      });
+    }
 
     await reloadPhotos();
-    setNotice("Foto guardada en el teléfono. Se envía cuando haya red.");
+    setNotice(
+      scanClientId
+        ? "Foto guardada en el teléfono. Se envía cuando haya red."
+        : "Foto guardada en el teléfono. Vuelve a escanear durante una visita para enviarla.",
+    );
   }
 
   async function onNovelty(event: FormEvent<HTMLFormElement>) {
@@ -128,9 +142,14 @@ export function AreaEvidencePanel({ code }: { code: string }) {
       return;
     }
 
+    if (!visitClientId) {
+      setNotice("No hay una visita de hoy para asociar esta novedad.");
+      return;
+    }
+
     setSaving(true);
     await enqueueNovelty({
-      visitClientId: "local-visit",
+      visitClientId,
       priority,
       status: "OPEN",
       description: text,

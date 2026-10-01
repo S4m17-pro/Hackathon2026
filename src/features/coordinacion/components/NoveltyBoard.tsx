@@ -27,11 +27,6 @@ export interface NoveltyRow {
   resolutionAction: string | null;
 }
 
-export interface NoveltyCloser {
-  id: string;
-  name: string;
-}
-
 const priorityLabel: Record<NoveltyPriority, string> = {
   LOW: "Baja",
   MEDIUM: "Media",
@@ -45,9 +40,6 @@ const statusLabel: Record<NoveltyStatus, string> = {
   RESOLVED: "Cerrada",
 };
 
-const fieldClass =
-  "h-11 w-full rounded-xl border border-zinc-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-zinc-950";
-
 function formatWhen(iso: string): string {
   return new Intl.DateTimeFormat("es-CO", {
     dateStyle: "medium",
@@ -57,11 +49,11 @@ function formatWhen(iso: string): string {
 
 export function NoveltyBoard({
   novelties,
-  closers,
+  closerId,
   loadError,
 }: {
   novelties: NoveltyRow[];
-  closers: NoveltyCloser[];
+  closerId: string;
   loadError: string | null;
 }) {
   const router = useRouter();
@@ -97,11 +89,10 @@ export function NoveltyBoard({
   function closeNovelty(id: string, form: HTMLFormElement) {
     const data = new FormData(form);
     const resolutionAction = String(data.get("resolutionAction") ?? "").trim();
-    const closedById = String(data.get("closedById") ?? "");
 
     startTransition(async () => {
       const result = await updateNoveltyStatus(id, "RESOLVED", {
-        closedById,
+        closedById: closerId,
         resolutionAction,
       });
       if (!result.ok) {
@@ -198,17 +189,7 @@ export function NoveltyBoard({
                           }}
                         >
                           <Input name="resolutionAction" placeholder="Qué se hizo" required />
-                          <select name="closedById" required className={fieldClass} defaultValue="">
-                            <option value="" disabled>
-                              Responsable
-                            </option>
-                            {closers.map((person) => (
-                              <option key={person.id} value={person.id}>
-                                {person.name}
-                              </option>
-                            ))}
-                          </select>
-                          <Button type="submit" variant="contrast" disabled={pending || closers.length === 0}>
+                          <Button type="submit" variant="contrast" disabled={pending}>
                             Cerrar
                           </Button>
                         </form>

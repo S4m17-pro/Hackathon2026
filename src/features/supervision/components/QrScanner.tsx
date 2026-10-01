@@ -4,6 +4,7 @@ import { Camera, MapPin, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
+import { enqueueQrScan } from "@/features/supervision/offline/outbox";
 import {
   bulkCacheQrPoints,
   findCachedQrPoint,
@@ -16,7 +17,15 @@ import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
 
-const DEMO_CODE = "AREA-NORTE-01";
+export interface ScannerQrPoint {
+  code: string;
+  id: string;
+  costCenterId: string;
+  areaName: string;
+  lat: number;
+  lng: number;
+  radiusMeters: number;
+}
 
 type ScanPhase =
   | { status: "idle" }
@@ -55,7 +64,13 @@ function readPosition(): Promise<GeoPoint> {
   });
 }
 
-export function QrScanner() {
+export function QrScanner({
+  catalog,
+  visitClientId,
+}: {
+  catalog: ScannerQrPoint[];
+  visitClientId: string | null;
+}) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -65,31 +80,15 @@ export function QrScanner() {
   const [cameraReady, setCameraReady] = useState(false);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function seedDemoPoint() {
-      const existing = await findCachedQrPoint(DEMO_CODE);
-      if (existing || cancelled) {
-        return;
-      }
-
-      await bulkCacheQrPoints([
-        {
-          code: DEMO_CODE,
-          id: "mock-qr-norte",
-          costCenterId: "cc-norte",
-          areaName: "Baños planta 1",
-          lat: 4.711,
-          lng: -74.0721,
-          radiusMeters: 50,
-        },
-      ]);
+    if (catalog.length === 0) {
+      return;
     }
 
-    void seedDemoPoint();
+    void bulkCacheQrPoints(catalog);
+  }, [catalog]);
 
+  useEffect(() => {
     return () => {
-      cancelled = true;
       stopCamera();
     };
   }, []);
@@ -214,6 +213,22 @@ export function QrScanner() {
     void checkCode(manualCode);
   }
 
+  async function openEvidence(code: string, check: QrLocationCheck) {
+    if (check.point && visitClientId && typeof check.distanceMeters === "number") {
+      const scan = await enqueueQrScan({
+        qrPointId: check.point.id,
+        visitClientId,
+        distanceMeters: check.distanceMeters,
+        verified: check.verified,
+        clientCreatedAt: new Date().toISOString(),
+      });
+      router.push(`/qr/${encodeURIComponent(code)}?scan=${scan.clientId}`);
+      return;
+    }
+
+    router.push(`/qr/${encodeURIComponent(code)}`);
+  }
+
   const result = phase.status === "result" ? phase : null;
 
   return (
@@ -229,7 +244,7 @@ export function QrScanner() {
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-zinc-50">
             <QrCode className="size-10 text-lime-300" aria-hidden />
             <p className="text-sm text-zinc-300">
-              Apunta al código del área. Si la cámara no lee, usa el código de prueba.
+              Apunta al código del área. Si la cámara no lo lee, escríbelo abajo.
             </p>
           </div>
         ) : null}
@@ -276,7 +291,7 @@ export function QrScanner() {
                 <Button
                   variant="contrast"
                   className="w-full"
-                  onClick={() => router.push(`/qr/${encodeURIComponent(result.code)}`)}
+                  onClick={() => void openEvidence(result.code, result.check)}
                 >
                   Abrir evidencias
                 </Button>
@@ -299,23 +314,13 @@ export function QrScanner() {
           <Input
             value={manualCode}
             onChange={(event) => setManualCode(event.target.value)}
-            placeholder={DEMO_CODE}
+            placeholder="Código del área"
             autoCapitalize="characters"
           />
         </label>
         <Button type="submit" variant="outline" className="w-full" disabled={manualCode.trim().length === 0}>
           Validar código
         </Button>
-        <button
-          type="button"
-          className="text-sm text-zinc-500 underline"
-          onClick={() => {
-            setManualCode(DEMO_CODE);
-            void checkCode(DEMO_CODE);
-          }}
-        >
-          Usar código de prueba {DEMO_CODE}
-        </button>
       </form>
     </div>
   );

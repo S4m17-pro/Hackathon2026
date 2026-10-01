@@ -1,13 +1,45 @@
+import { requireRole } from "@/app/(auth)/session";
 import { QrScanner } from "@/features/supervision/components/QrScanner";
+import { findTodayVisitClientId } from "@/features/supervision/todayVisit";
+import { listQrPoints } from "@/features/coordinacion/queries";
+import { DEFAULT_SEED_QR_POINTS } from "@/features/supervision/offline/qrLookup";
 
-export default function EscanearPage() {
+export default async function EscanearPage() {
+  const session = await requireRole("SUPERVISOR");
+  const catalog = await loadCatalog();
+  const visitClientId = await findTodayVisitClientId(session.id);
+
   return (
     <main className="flex flex-col gap-4 p-4">
       <header className="flex flex-col gap-1">
         <p className="text-xs tracking-wide text-zinc-500 uppercase">Supervisor</p>
         <h1 className="text-2xl font-semibold">Escanear QR</h1>
       </header>
-      <QrScanner />
+      <QrScanner catalog={catalog} visitClientId={visitClientId} />
     </main>
   );
+}
+
+async function loadCatalog() {
+  try {
+    const points = await listQrPoints();
+    if (points.length === 0) {
+      return DEFAULT_SEED_QR_POINTS;
+    }
+    return points
+      .filter((point) => point.isActive)
+      .map((point) => ({
+        code: point.code,
+        id: point.id,
+        costCenterId: point.costCenterId,
+        areaName: point.areaName,
+        lat: point.lat,
+        lng: point.lng,
+        radiusMeters: point.radiusMeters,
+      }));
+  } catch {
+    // Si no hay conexión al servidor o la base de datos no está disponible,
+    // usamos el catálogo de contingencia con QR-PLAZA-NORTE-1 y los puntos oficiales
+    return DEFAULT_SEED_QR_POINTS;
+  }
 }

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
+import { signIn } from "@/app/(auth)/login/actions";
 import { Button } from "@/shared/ui/button";
 import {
   Card,
@@ -13,17 +14,28 @@ import {
   CardTitle,
 } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
-import { cn } from "@/shared/ui/cn";
-
-type EntryRole = "supervisor" | "coordinador";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<EntryRole>("supervisor");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    router.push(role === "supervisor" ? "/visitas" : "/dashboard");
+    const data = new FormData(event.currentTarget);
+    setPending(true);
+    setError(null);
+
+    const result = await signIn(String(data.get("email") ?? ""), String(data.get("password") ?? ""));
+    setPending(false);
+
+    if (!result.ok || !result.role) {
+      setError(result.error ?? "No se pudo ingresar.");
+      return;
+    }
+
+    router.push(result.role === "SUPERVISOR" ? "/visitas" : "/dashboard");
+    router.refresh();
   }
 
   return (
@@ -40,47 +52,30 @@ export default function LoginPage() {
             Check-in con GPS, códigos QR del área y novedades que salen del teléfono aunque no haya red.
           </p>
         </div>
-        <p className="text-sm text-zinc-500">Acceso de demostración. Cualquier correo entra.</p>
+        <p className="text-sm text-zinc-500">El rol lo define la cuenta, no esta pantalla.</p>
       </section>
 
       <section className="flex items-center bg-zinc-100 px-4 py-10 text-zinc-950 sm:px-8">
         <Card className="mx-auto w-full max-w-md">
           <CardHeader>
             <CardTitle>Ingresar</CardTitle>
-            <CardDescription>Elige el rol para abrir la vista correspondiente.</CardDescription>
+            <CardDescription>Usa el correo y la contraseña de tu usuario.</CardDescription>
           </CardHeader>
           <form onSubmit={onSubmit}>
             <CardContent>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Correo
-                <Input type="email" name="email" placeholder="ana@aseo.com" required />
+                <Input type="email" name="email" autoComplete="username" required />
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium">
                 Contraseña
-                <Input type="password" name="password" placeholder="••••••••" required />
+                <Input type="password" name="password" autoComplete="current-password" required />
               </label>
-              <div className="grid grid-cols-2 gap-2">
-                <Button
-                  type="button"
-                  variant={role === "supervisor" ? "default" : "outline"}
-                  className={cn(role === "supervisor" && "ring-2 ring-lime-400")}
-                  onClick={() => setRole("supervisor")}
-                >
-                  Supervisor
-                </Button>
-                <Button
-                  type="button"
-                  variant={role === "coordinador" ? "default" : "outline"}
-                  className={cn(role === "coordinador" && "ring-2 ring-lime-400")}
-                  onClick={() => setRole("coordinador")}
-                >
-                  Coordinador
-                </Button>
-              </div>
+              {error ? <p className="text-sm text-red-700">{error}</p> : null}
             </CardContent>
             <CardFooter>
-              <Button type="submit" className="w-full">
-                Entrar
+              <Button type="submit" className="w-full" disabled={pending}>
+                {pending ? "Entrando…" : "Entrar"}
               </Button>
             </CardFooter>
           </form>

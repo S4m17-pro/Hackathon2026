@@ -1,7 +1,9 @@
+import { requireRole } from "@/app/(auth)/session";
 import { NoveltyBoard } from "@/features/coordinacion/components/NoveltyBoard";
-import { listNovelties, listSupervisors } from "@/features/coordinacion/queries";
+import { listNovelties } from "@/features/coordinacion/queries";
 
 export default async function NovedadesPage() {
+  const session = await requireRole("COORDINADOR");
   const data = await loadNovelties();
 
   return (
@@ -10,14 +12,14 @@ export default async function NovedadesPage() {
         <p className="text-xs tracking-[0.16em] text-zinc-500 uppercase">Operación</p>
         <h1 className="text-3xl font-semibold">Novedades</h1>
       </header>
-      <NoveltyBoard {...data} />
+      <NoveltyBoard {...data} closerId={session.id} />
     </main>
   );
 }
 
 async function loadNovelties() {
   try {
-    const [novelties, supervisors] = await Promise.all([listNovelties(), listSupervisors()]);
+    const novelties = await listNovelties();
 
     return {
       loadError: null,
@@ -29,13 +31,11 @@ async function loadNovelties() {
         clientCreatedAt: item.clientCreatedAt,
         resolutionAction: item.resolutionAction,
       })),
-      closers: supervisors.map((person) => ({ id: person.id, name: person.name })),
     };
   } catch {
     return {
       loadError: "No se pudo leer la base. Revisa que MySQL esté encendido.",
       novelties: [],
-      closers: [],
     };
   }
 }

@@ -1,3 +1,4 @@
+import { requireRole } from "@/app/(auth)/session";
 import { AssignmentBoard } from "@/features/coordinacion/components/AssignmentBoard";
 import {
   listCostCenters,
@@ -7,6 +8,7 @@ import {
 } from "@/features/coordinacion/queries";
 
 export default async function AsignacionesPage() {
+  await requireRole("COORDINADOR");
   const data = await loadAssignments();
 
   return (
