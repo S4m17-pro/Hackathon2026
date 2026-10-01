@@ -114,7 +114,6 @@ async function loadDashboard() {
 
     const supervisorName = new Map(supervisors.map((person) => [person.id, person.name]));
     const centerName = new Map(centers.map((center) => [center.id, center.name]));
-    const scannedPointIds = new Set(operations.scans.map((scan) => scan.qrPointId));
 
     const onRouteCount = routes.filter((r) => r.status === "EN_RUTA").length;
     const withRouteCount = routes.filter((r) => r.status !== "SIN_VISITA").length;
@@ -215,7 +214,7 @@ async function loadDashboard() {
         }),
       ),
       scans: operations.qrPoints
-        .filter((point) => scannedPointIds.has(point.id))
+        .filter((point) => point.isActive)
         .map(
           (point): MapScannedQr => ({
             id: point.id,
