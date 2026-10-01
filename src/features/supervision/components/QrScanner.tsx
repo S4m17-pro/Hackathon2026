@@ -4,7 +4,8 @@ import { Camera, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import { enqueueQrScan } from "@/features/supervision/offline/outbox";
+import { evaluateGeofence } from "@/features/supervision/offline/geo";
+import { enqueueQrScan, enqueueVisit } from "@/features/supervision/offline/outbox";
 import {
   bulkCacheQrPoints,
   dropRetiredQrPoints,
@@ -12,7 +13,7 @@ import {
   verifyQrLocation,
   type QrLocationCheck,
 } from "@/features/supervision/offline/qrLookup";
-import type { GeoPoint } from "@/shared/types";
+import type { GeoPoint, VisitStatus } from "@/shared/types";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
@@ -27,15 +28,61 @@ export interface ScannerQrPoint {
   radiusMeters: number;
 }
 
+export interface ArrivalVisit {
+  clientId: string;
+  supervisorId: string;
+  costCenterId: string;
+  clientCreatedAt: string;
+  status: VisitStatus;
+  centerLat: number | null;
+  centerLng: number | null;
+}
+
 type ScanPhase =
   | { status: "idle" }
   | { status: "scanning" }
   | { status: "checking" }
+  | { status: "locating"; code: string }
   | { status: "result"; code: string; check: QrLocationCheck }
   | { status: "error"; message: string };
 
 interface QrDetector {
   detect: (source: CanvasImageSource) => Promise<Array<{ rawValue: string }>>;
+}
+
+async function registerArrival(
+  visit: ArrivalVisit,
+  position: GeoPoint & { accuracy: number },
+) {
+  const geofence =
+    visit.centerLat !== null && visit.centerLng !== null
+      ? evaluateGeofence(position, { lat: visit.centerLat, lng: visit.centerLng })
+      : null;
+  const distanceMeters = geofence === null ? null : Math.round(geofence.distanceMeters);
+
+  await enqueueVisit({
+    clientId: visit.clientId,
+    clientCreatedAt: visit.clientCreatedAt,
+    supervisorId: visit.supervisorId,
+    costCenterId: visit.costCenterId,
+    status: "IN_PROGRESS",
+    checkInLat: position.lat,
+    checkInLng: position.lng,
+    checkInAccuracyM: position.accuracy,
+    checkInAt: new Date().toISOString(),
+    checkInDistanceM: distanceMeters,
+    checkInVerified: geofence?.isWithinRadius ?? false,
+    checkInOutOfRange: geofence?.isOutOfRange ?? false,
+    checkOutLat: null,
+    checkOutLng: null,
+    checkOutAccuracyM: null,
+    checkOutAt: null,
+    checkOutDistanceM: null,
+    checkOutVerified: false,
+    checkOutOutOfRange: false,
+    checkOutNotes: null,
+    notes: null,
+  });
 }
 
 function getDetector(): QrDetector | null {
@@ -50,15 +97,21 @@ function getDetector(): QrDetector | null {
   return new candidate.BarcodeDetector({ formats: ["qr_code"] });
 }
 
-function readPosition(): Promise<GeoPoint> {
+function readPosition(): Promise<GeoPoint & { accuracy: number }> {
   return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Este teléfono no entrega la ubicación."));
+      return;
+    }
+
     navigator.geolocation.getCurrentPosition(
       (position) =>
         resolve({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
         }),
-      () => reject(new Error("No se pudo leer el GPS. Activa la ubicación e inténtalo de nuevo.")),
+      () => reject(new Error("Activa el GPS para registrar la ubicación.")),
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 15000 },
     );
   });
@@ -67,9 +120,11 @@ function readPosition(): Promise<GeoPoint> {
 export function QrScanner({
   catalog,
   visitClientId,
+  arrival,
 }: {
   catalog: ScannerQrPoint[];
   visitClientId: string | null;
+  arrival: ArrivalVisit | null;
 }) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -78,6 +133,7 @@ export function QrScanner({
   const [phase, setPhase] = useState<ScanPhase>({ status: "idle" });
   const [manualCode, setManualCode] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
+  const [pendingCode, setPendingCode] = useState<string | null>(null);
 
   useEffect(() => {
     void dropRetiredQrPoints().then(() => {
@@ -173,40 +229,51 @@ export function QrScanner({
 
     stopCamera();
     setPhase({ status: "checking" });
+    setPendingCode(null);
+
+    const point = await findCachedQrPoint(code);
+    if (!point) {
+      setPhase({
+        status: "result",
+        code,
+        check: {
+          found: false,
+          verified: false,
+          isOutOfRange: false,
+          error: `El código QR "${code}" no se encuentra en el catálogo local de este dispositivo.`,
+        },
+      });
+      return;
+    }
+
+    if (arrival && point.costCenterId !== arrival.costCenterId) {
+      setPhase({
+        status: "error",
+        message: "Ese código no es de este centro. Escanea el QR del lugar de la visita.",
+      });
+      return;
+    }
+
+    setPendingCode(code);
+    setPhase({ status: "locating", code });
 
     try {
       const position = await readPosition();
       const check = await verifyQrLocation(code, position);
 
-      if (!check.found || !check.point) {
-        setPhase({ status: "result", code, check });
-        return;
+      if (arrival && arrival.status === "ASSIGNED") {
+        await registerArrival(arrival, position);
       }
 
+      setPendingCode(null);
       await openEvidence(code, check);
     } catch (error) {
-      const point = await findCachedQrPoint(code);
-
-      if (!point) {
-        setPhase({
-          status: "result",
-          code,
-          check: {
-            found: false,
-            verified: false,
-            isOutOfRange: false,
-            error: `El código QR "${code}" no se encuentra en el catálogo local de este dispositivo.`,
-          },
-        });
-        return;
-      }
-
-      await openEvidence(code, {
-        found: true,
-        point,
-        verified: false,
-        isOutOfRange: false,
-        error: error instanceof Error ? error.message : "No se pudo validar la ubicación.",
+      setPhase({
+        status: "error",
+        message:
+          error instanceof Error
+            ? `${error.message} El código ya quedó leído.`
+            : "No se pudo registrar la ubicación. El código ya quedó leído.",
       });
     }
   }
@@ -247,7 +314,9 @@ export function QrScanner({
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-zinc-50">
             <QrCode className="size-10 text-lime-300" aria-hidden />
             <p className="text-sm text-zinc-300">
-              Apunta al código del área. Si la cámara no lo lee, escríbelo abajo.
+              {arrival && arrival.status === "ASSIGNED"
+                ? "Primero el código del área. Después se guarda tu ubicación y se abre el formulario."
+                : "Apunta al código del área. Si la cámara no lo lee, escríbelo abajo."}
             </p>
           </div>
         ) : null}
@@ -261,7 +330,17 @@ export function QrScanner({
       ) : null}
 
       {phase.status === "checking" ? (
-        <p className="text-center text-sm text-zinc-500">Comparando el código con tu ubicación…</p>
+        <p className="text-center text-sm text-zinc-500">Leyendo el código…</p>
+      ) : null}
+
+      {phase.status === "locating" ? (
+        <p className="text-center text-sm text-zinc-500">Código leído. Registrando tu ubicación…</p>
+      ) : null}
+
+      {pendingCode && phase.status === "error" ? (
+        <Button className="w-full" onClick={() => void checkCode(pendingCode)}>
+          Registrar ubicación
+        </Button>
       ) : null}
 
       {phase.status === "error" ? (
@@ -296,7 +375,7 @@ export function QrScanner({
           />
         </label>
         <Button type="submit" variant="outline" className="w-full" disabled={manualCode.trim().length === 0}>
-          Registrar evidencia del área
+          {arrival && arrival.status === "ASSIGNED" ? "Usar este código y registrar llegada" : "Abrir formulario del área"}
         </Button>
       </form>
     </div>

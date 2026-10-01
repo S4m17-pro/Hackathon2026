@@ -1,22 +1,64 @@
 import { requireRole } from "@/app/(auth)/session";
-import { QrScanner } from "@/features/supervision/components/QrScanner";
-import { findTodayVisitClientId } from "@/features/supervision/todayVisit";
-import { listQrPoints } from "@/features/coordinacion/queries";
+import { QrScanner, type ArrivalVisit } from "@/features/supervision/components/QrScanner";
+import { bogotaToday, listCostCenters, listQrPoints, listVisits } from "@/features/coordinacion/queries";
 
-export default async function EscanearPage() {
+export default async function EscanearPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ visita?: string }>;
+}) {
   const session = await requireRole("SUPERVISOR");
+  const { visita } = await searchParams;
   const catalog = await loadCatalog();
-  const visitClientId = await findTodayVisitClientId(session.id);
+  const arrival = await loadArrival(session.id, visita);
+  const checkingIn = arrival?.status === "ASSIGNED";
 
   return (
     <main className="flex flex-col gap-4 p-4">
       <header className="flex flex-col gap-1">
         <p className="text-xs tracking-wide text-zinc-500 uppercase">Supervisor</p>
-        <h1 className="text-2xl font-semibold">Escanear QR</h1>
+        <h1 className="text-2xl font-semibold">{checkingIn ? "Llegada" : "Escanear QR"}</h1>
       </header>
-      <QrScanner catalog={catalog} visitClientId={visitClientId} />
+      <QrScanner catalog={catalog} visitClientId={arrival?.clientId ?? null} arrival={arrival} />
     </main>
   );
+}
+
+async function loadArrival(supervisorId: string, clientId?: string): Promise<ArrivalVisit | null> {
+  try {
+    const day = bogotaToday();
+    const [visits, centers] = await Promise.all([
+      listVisits({
+        supervisorId,
+        from: `${day}T00:00:00.000-05:00`,
+        to: `${day}T23:59:59.999-05:00`,
+      }),
+      listCostCenters(),
+    ]);
+    const centerById = new Map(centers.map((center) => [center.id, center]));
+    const open = visits.filter((visit) => visit.status === "ASSIGNED" || visit.status === "IN_PROGRESS");
+    const chosen =
+      (clientId ? open.find((visit) => visit.clientId === clientId) : undefined) ??
+      open.find((visit) => visit.status === "IN_PROGRESS") ??
+      open.find((visit) => visit.status === "ASSIGNED");
+
+    if (!chosen) {
+      return null;
+    }
+
+    const center = centerById.get(chosen.costCenterId);
+    return {
+      clientId: chosen.clientId,
+      supervisorId: chosen.supervisorId,
+      costCenterId: chosen.costCenterId,
+      clientCreatedAt: chosen.clientCreatedAt,
+      status: chosen.status,
+      centerLat: center?.lat ?? null,
+      centerLng: center?.lng ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function loadCatalog() {

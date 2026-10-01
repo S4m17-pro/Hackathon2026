@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { signOut } from "@/app/(auth)/login/actions";
+import { SyncStatusBadge } from "@/features/supervision/components/SyncStatusBadge";
 import { cn } from "@/shared/ui/cn";
 
 const tabs: { href: string; label: string; icon: LucideIcon }[] = [
@@ -32,6 +33,9 @@ export default function SupervisorLayout({ children }: { children: ReactNode }) 
       </div>
 
       <div className="mx-auto block min-h-dvh max-w-md bg-zinc-50 text-zinc-950 md:hidden">
+        <div className="sticky top-0 z-20 border-b border-zinc-200 bg-zinc-50 px-4 py-2">
+          <SyncStatusBadge />
+        </div>
         <div className="pb-24">{children}</div>
         <nav className="fixed inset-x-0 bottom-0 z-10 mx-auto flex max-w-md border-t border-zinc-200 bg-white">
           {tabs.map((tab) => {
