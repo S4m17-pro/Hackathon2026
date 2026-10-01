@@ -1,15 +1,36 @@
+import dynamic from "next/dynamic";
+
 import { requireRole } from "@/app/(auth)/session";
 import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
+import type {
+  MapCostCenter,
+  MapScannedQr,
+  MapSupervisor,
+} from "@/features/coordinacion/components/SupervisorsMap";
 import { VisitsTable } from "@/features/coordinacion/components/VisitsTable";
 import {
   bogotaToday,
   getDashboardKpis,
+  getOperationsMap,
   listCostCenters,
   listEvidenceTrace,
   listSupervisors,
   listVisits,
 } from "@/features/coordinacion/queries";
+
+const SupervisorsMap = dynamic(
+  () =>
+    import("@/features/coordinacion/components/SupervisorsMap").then(
+      (mod) => mod.SupervisorsMap,
+    ),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-[32rem] w-full rounded-2xl border border-zinc-200 bg-white" />
+    ),
+  },
+);
 
 export default async function DashboardPage() {
   await requireRole("COORDINADOR");
@@ -25,6 +46,7 @@ export default async function DashboardPage() {
         <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950">{data.loadError}</p>
       ) : null}
       <KpiCards items={data.kpis} />
+      <SupervisorsMap centers={data.centers} supervisors={data.supervisors} scans={data.scans} />
       <VisitsTable rows={data.visits} />
       <EvidenceTraceTable rows={data.evidence} />
     </main>
@@ -34,7 +56,7 @@ export default async function DashboardPage() {
 async function loadDashboard() {
   try {
     const day = bogotaToday();
-    const [kpis, visits, supervisors, centers, evidence] = await Promise.all([
+    const [kpis, visits, supervisors, centers, operations, evidence] = await Promise.all([
       getDashboardKpis(),
       listVisits({
         from: `${day}T00:00:00.000-05:00`,
@@ -42,11 +64,13 @@ async function loadDashboard() {
       }),
       listSupervisors(),
       listCostCenters(),
+      getOperationsMap(),
       listEvidenceTrace(),
     ]);
 
     const supervisorName = new Map(supervisors.map((person) => [person.id, person.name]));
     const centerName = new Map(centers.map((center) => [center.id, center.name]));
+    const scannedPointIds = new Set(operations.scans.map((scan) => scan.qrPointId));
 
     return {
       loadError: null,
@@ -81,6 +105,33 @@ async function loadDashboard() {
           status: visit.status,
           checkIn: formatWhen(visit.checkInAt),
         })),
+      centers: operations.costCenters.map(
+        (center): MapCostCenter => ({
+          id: center.id,
+          name: center.name,
+          lat: center.lat,
+          lng: center.lng,
+        }),
+      ),
+      supervisors: operations.lastPositions.map(
+        (position): MapSupervisor => ({
+          id: position.supervisorId,
+          name: supervisorName.get(position.supervisorId) ?? "Supervisor",
+          lat: position.lat,
+          lng: position.lng,
+          checkInLabel: formatWhen(position.at),
+        }),
+      ),
+      scans: operations.qrPoints
+        .filter((point) => scannedPointIds.has(point.id))
+        .map(
+          (point): MapScannedQr => ({
+            id: point.id,
+            label: `${point.code} · ${point.areaName}`,
+            lat: point.lat,
+            lng: point.lng,
+          }),
+        ),
       evidence,
     };
   } catch {
@@ -93,6 +144,9 @@ async function loadDashboard() {
         { label: "GPS verificado", value: "—", hint: "Sin conexión a la base" },
       ],
       visits: [],
+      centers: [],
+      supervisors: [],
+      scans: [],
       evidence: [],
     };
   }
