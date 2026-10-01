@@ -383,8 +383,9 @@ export async function assignTemplateToVisit(
 }
 
 /**
- * RF-NOV-04 / CA-07. `RESOLVED` exige `closedById` y `resolutionAction`.
- * La validacion vive en `changeNoveltyStatus`.
+ * RF-NOV-04 / CA-07. El ciclo es OPEN -> IN_REVIEW -> RESOLVED (regla 4).
+ * `RESOLVED` exige `closedById` y `resolutionAction`; eso lo valida
+ * `changeNoveltyStatus`. Repetir el estado actual es idempotente.
  */
 export async function updateNoveltyStatus(
   noveltyId: string,
@@ -392,6 +393,28 @@ export async function updateNoveltyStatus(
   closure?: { closedById: string; resolutionAction: string },
 ): Promise<ActionResult<Novelty>> {
   try {
+    const current = await prisma.novelty.findUnique({ where: { id: noveltyId } });
+
+    if (current === null) {
+      return { ok: false, error: "No existe la novedad." };
+    }
+
+    if (current.status === status) {
+      return { ok: true, data: toNoveltyDTO(current) };
+    }
+
+    const next: Partial<Record<NoveltyStatus, NoveltyStatus>> = {
+      OPEN: "IN_REVIEW",
+      IN_REVIEW: "RESOLVED",
+    };
+
+    if (next[current.status] !== status) {
+      return {
+        ok: false,
+        error: "El ciclo es abierta, en seguimiento y cerrada, en ese orden.",
+      };
+    }
+
     const row = await changeNoveltyStatus(noveltyId, status, closure);
     return { ok: true, data: toNoveltyDTO(row) };
   } catch (error) {
