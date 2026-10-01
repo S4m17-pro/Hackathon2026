@@ -3,6 +3,7 @@ import { AlertsSection, type OutOfRangeAlert, type DelayedAlert, type CriticalNo
 import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
 import { ExportReportButton } from "@/features/coordinacion/components/ExportReportButton";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
+import { SupervisorsMapDynamic } from "@/features/coordinacion/components/SupervisorsMapDynamic";
 import type {
   MapCostCenter,
   MapScannedQr,
@@ -50,6 +51,11 @@ export default async function DashboardPage() {
 
       {/* Tarjetas de Indicadores Clave (KPIs) */}
       <KpiCards items={data.kpis} />
+      <SupervisorsMapDynamic
+        centers={data.centers}
+        supervisors={data.supervisors}
+        scans={data.scans}
+      />
 
       {/* Sección de Alertas y Operaciones en Riesgo */}
       <AlertsSection
@@ -108,7 +114,6 @@ async function loadDashboard() {
 
     const supervisorName = new Map(supervisors.map((person) => [person.id, person.name]));
     const centerName = new Map(centers.map((center) => [center.id, center.name]));
-    const scannedPointIds = new Set(operations.scans.map((scan) => scan.qrPointId));
 
     const onRouteCount = routes.filter((r) => r.status === "EN_RUTA").length;
     const withRouteCount = routes.filter((r) => r.status !== "SIN_VISITA").length;
@@ -209,7 +214,7 @@ async function loadDashboard() {
         }),
       ),
       scans: operations.qrPoints
-        .filter((point) => scannedPointIds.has(point.id))
+        .filter((point) => point.isActive)
         .map(
           (point): MapScannedQr => ({
             id: point.id,

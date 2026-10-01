@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma db push && prisma db seed && next build",
+    "build": "next build",
+    "build:local": "prisma db push && prisma db seed && next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "db:migrate": "prisma migrate dev",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
+    "@vercel/blob": "^2.8.0",
     "dexie": "4.4.6",
     "leaflet": "1.9.4",
     "lucide-react": "^1.49.0",
