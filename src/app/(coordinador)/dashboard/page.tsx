@@ -135,8 +135,15 @@ async function loadDashboard() {
       evidence,
     };
   } catch {
+    const FALLBACK_COST_CENTERS: MapCostCenter[] = [
+      { id: "cc-1", name: "Plaza Central", lat: 4.658392, lng: -74.093498 },
+      { id: "cc-2", name: "Centro Empresarial", lat: 4.678431, lng: -74.058319 },
+      { id: "cc-3", name: "Parque Centro", lat: 4.706812, lng: -74.068127 },
+    ];
+
     return {
-      loadError: "No se pudo leer la base. Revisa que MySQL esté encendido.",
+      loadError:
+        "Sin conexión con MySQL. Mostrando sitios base de operación en el mapa. Para ver datos en tiempo real ejecuta 'docker compose up -d'.",
       kpis: [
         { label: "Visitas programadas", value: "—", hint: "Sin conexión a la base" },
         { label: "Completadas", value: "—", hint: "Sin conexión a la base" },
@@ -144,7 +151,7 @@ async function loadDashboard() {
         { label: "GPS verificado", value: "—", hint: "Sin conexión a la base" },
       ],
       visits: [],
-      centers: [],
+      centers: FALLBACK_COST_CENTERS,
       supervisors: [],
       scans: [],
       evidence: [],

@@ -1,6 +1,6 @@
 "use client";
 
-import { Wifi, WifiOff } from "lucide-react";
+import { CheckCircle2, Loader2, Wifi, WifiOff } from "lucide-react";
 import { useEffect } from "react";
 
 import { refreshPendingCount, syncAll } from "@/features/supervision/offline/outbox";
@@ -43,19 +43,48 @@ export function SyncStatusBadge() {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Badge tone={isOnline ? "online" : "offline"}>
-        {isOnline ? <Wifi className="size-3.5" aria-hidden /> : <WifiOff className="size-3.5" aria-hidden />}
-        {isOnline ? "En línea" : "Sin conexión"}
-        <span>· {pendingCount} por enviar</span>
+      <Badge tone={isOnline ? (pendingCount > 0 ? "neutral" : "online") : "offline"}>
+        {isSyncing ? (
+          <Loader2 className="size-3.5 animate-spin text-lime-600" aria-hidden />
+        ) : isOnline ? (
+          pendingCount === 0 ? (
+            <CheckCircle2 className="size-3.5 text-lime-600" aria-hidden />
+          ) : (
+            <Wifi className="size-3.5 text-zinc-600" aria-hidden />
+          )
+        ) : (
+          <WifiOff className="size-3.5 text-amber-600" aria-hidden />
+        )}
+
+        <span>
+          {isSyncing
+            ? "Sincronizando con el servidor…"
+            : isOnline
+            ? pendingCount === 0
+              ? "En línea · Todo al día (Listo sin señal)"
+              : `En línea · ${pendingCount} pendiente${pendingCount > 1 ? "s" : ""}`
+            : `Sin conexión · ${pendingCount} en memoria local`}
+        </span>
       </Badge>
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={!isOnline || isSyncing || pendingCount === 0}
-        onClick={() => void syncAll()}
-      >
-        {isSyncing ? "Enviando…" : "Enviar"}
-      </Button>
+
+      {pendingCount > 0 && isOnline ? (
+        <Button
+          size="sm"
+          variant="contrast"
+          disabled={isSyncing}
+          onClick={() => void syncAll()}
+          className="h-8 gap-1.5 px-3 text-xs shadow-xs"
+        >
+          {isSyncing ? (
+            <>
+              <Loader2 className="size-3 animate-spin" aria-hidden />
+              Enviando…
+            </>
+          ) : (
+            "Sincronizar ahora"
+          )}
+        </Button>
+      ) : null}
     </div>
   );
 }
