@@ -129,7 +129,10 @@ Los codigos de `DataError` son `PARENT_NOT_FOUND`, `OWNER_NOT_FOUND`, `INVALID_P
 Reglas que los helpers ya aplican y que no debes reimplementar:
 
 - Nada se bloquea por estar fuera de rango (regla 3 del SDD): se guarda el flag y la operacion sigue.
-- Un update de visita nunca pisa `supervisorId` ni `costCenterId`, ni `clientCreatedAt`, ni `receivedAt`.
+- Un update de visita nunca pisa `supervisorId`, `costCenterId`, `scheduledAt`, `clientCreatedAt` ni `receivedAt`.
+- Si la visita ya esta `CANCELLED`, `upsertVisit` no la reabre: devuelve la fila y `syncOperation` responde `ok: true`. Un payload con `status: CANCELLED` no cancela. Check-out sin check-in tira `NO_CHECKIN` y el outbox reintenta.
+- Despues de un `visit.upsert` que no este cancelado, corre `recalculateVisitGeofence` si el payload trae `checkInAt` y, aparte, si trae `checkOutAt`.
+- `POST /api/evidence` recibe `multipart` con el campo `file` y responde `{ url }`. Esa url entra luego en `evidence.upsert`.
 - Un update de novedad nunca toca `status` ni los campos de cierre. El ciclo de vida es del coordinador (regla 4).
 - `upsertChecklistItemResult` va por `(visitId, itemId)`, no por `clientId`: hay una sola respuesta por item y visita. Si el supervisor reanuda con otro `clientId`, actualiza en vez de duplicar.
 
@@ -176,7 +179,9 @@ Helpers de Juan que te sirven, todos en `src/shared/lib/data.ts`:
 | Plantilla por centro de costo (RF-ASI-03) | `assignChecklistTemplateToCostCenter(costCenterId, templateId)` |
 | Estado del checklist (RF-PAN-07) | `findPendingRequiredItems(visitId)` y `getVisitChecklist(visitId)` |
 
-`changeNoveltyStatus` con `RESOLVED` exige `closedById` y `resolutionAction`, y tira `DataError` con `INVALID_PAYLOAD` si faltan. Los tres datos de la regla 4 van juntos o ninguno. La validación ya está hecha: no la repitas.
+`changeNoveltyStatus` con `RESOLVED` exige `closedById` y `resolutionAction`, y tira `DataError` con `INVALID_PAYLOAD` si faltan. Los tres datos de la regla 4 van juntos o ninguno. La validación ya está hecha: no la repitas. El panel la llama a traves de `updateNoveltyStatus`.
+
+RF-ASI-01 ya cabe en el contrato. `Visit.scheduledAt` es la fecha y hora programada (nullable). `VisitStatus` incluye `CANCELLED`. Esas dos cosas las escribe el coordinador con `createAssignedVisit`, `updateVisitAssignment` y `cancelVisit` en `actions.ts`. No uses `upsertVisit` para asignar: no guarda `scheduledAt` y no cancela. El sync del celular no revierte una cancelacion ni pisa el horario.
 
 QrPoint lleva `isActive` (RF-QR-02). Desactivar es cambiar el flag, nunca borrar la fila: RF-QR-06 distingue "existe pero está inactivo" de "no existe". El radio por defecto es 50 m, no 30.
 
@@ -256,6 +261,7 @@ Checklist:
 - `syncOperation` traduce `DataError` a `SyncOperationResult` con `ok: false` (no lanza excepciones para padres ausentes).
 - `recalculateVisitGeofence` se corre en cada sync de check-in y check-out, y el resultado del servidor pisa el del dispositivo.
 - Un sync de novedad nunca reabre una novedad cerrada.
+- Un sync de visita nunca reabre una visita `CANCELLED` ni pisa `scheduledAt`.
 - Las páginas importan las actions y las queries reales, no stubs.
 - `package.json` y el lockfile se instalan una sola vez, con las dependencias anotadas en los tres PR.
 - Samuel prueba en `main`: login, visitas, escáner QR y dashboard.

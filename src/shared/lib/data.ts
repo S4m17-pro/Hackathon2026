@@ -34,9 +34,10 @@ import type {
  *    duplica filas.
  * 2. El dispositivo manda referencias por `clientId` (no por `id` de servidor).
  *    Estos helpers las resuelven con `resolve*ByClientId` antes de escribir.
- * 3. Un `update` nunca pisa `supervisorId` ni `costCenterId` de una visita. Los
- *    asigna el coordinador en el servidor; un dispositivo con copia vieja
- *    revierte la reasignacion si los sobreescribe. Solo se setean al crear.
+ * 3. Un `update` nunca pisa `supervisorId`, `costCenterId` ni `scheduledAt`.
+ *    Los asigna el coordinador. Una visita `CANCELLED` no se reabre desde el
+ *    dispositivo: `upsertVisit` devuelve la fila tal cual. `CANCELLED` en el
+ *    payload se ignora; cancelar es `cancelVisit` del coordinador.
  * 4. `clientCreatedAt` es la hora del dispositivo y nunca se recalcula en el
  *    update. `receivedAt` lo pone el servidor y no se toca (regla 5).
  * 5. Fuera de rango se marca, no se bloquea (regla 3). Ningun helper rechaza
@@ -173,27 +174,54 @@ async function requireVisitId(visitClientId: string): Promise<string> {
  * Upsert de visita por `clientId`.
  *
  * Al crear se guardan `supervisorId` y `costCenterId` tal cual llegan del
- * dispositivo. Al actualizar solo se tocan los campos que el dispositivo
- * posee: `status`, check-in, check-out y observaciones. Los campos de
- * asignacion no se tocan, para que una reasignacion del coordinador no se
- * revierta. `clientCreatedAt` tampoco se toca (regla 5).
+ * dispositivo. `scheduledAt` no se toca: la pone el coordinador.
+ * Al actualizar solo se tocan los campos que el dispositivo posee: `status`,
+ * check-in, check-out y observaciones. Los campos de asignacion no se tocan,
+ * para que una reasignacion del coordinador no se revierta.
+ * `clientCreatedAt` tampoco se toca (regla 5).
+ *
+ * Si la visita ya esta `CANCELLED`, se devuelve sin escribir. Un payload con
+ * `status: CANCELLED` no cancela: ese estado solo lo escribe el coordinador.
+ *
+ * Check-out sin check-in (ni en el payload ni en la fila) tira `NO_CHECKIN`
+ * para que el outbox reintente cuando llegue el check-in.
  *
  * No bloquea por estar fuera de rango (regla 3): guarda el flag y sigue.
  */
 export async function upsertVisit(payload: VisitSyncPayload): Promise<PrismaVisit> {
-  const data = {
-    status: payload.status,
+  const existing = await prisma.visit.findUnique({
+    where: { clientId: payload.clientId },
+    select: { id: true, status: true, checkInAt: true },
+  });
+
+  if (existing?.status === "CANCELLED") {
+    return prisma.visit.findUniqueOrThrow({ where: { id: existing.id } });
+  }
+
+  const checkInAt = toNullableDate(payload.checkInAt, "checkInAt");
+  const checkOutAt = toNullableDate(payload.checkOutAt, "checkOutAt");
+
+  if (checkOutAt !== null && checkInAt === null && existing?.checkInAt == null) {
+    throw new DataError(
+      "No se puede hacer check-out sin un check-in previo.",
+      "NO_CHECKIN",
+    );
+  }
+
+  const deviceStatus = payload.status === "CANCELLED" ? null : payload.status;
+
+  const fields = {
     checkInLat: toNumberOrNull(payload.checkInLat, "checkInLat"),
     checkInLng: toNumberOrNull(payload.checkInLng, "checkInLng"),
     checkInAccuracyM: toNumberOrNull(payload.checkInAccuracyM, "checkInAccuracyM"),
-    checkInAt: toNullableDate(payload.checkInAt, "checkInAt"),
+    checkInAt,
     checkInDistanceM: toNumberOrNull(payload.checkInDistanceM, "checkInDistanceM"),
     checkInVerified: payload.checkInVerified,
     checkInOutOfRange: payload.checkInOutOfRange,
     checkOutLat: toNumberOrNull(payload.checkOutLat, "checkOutLat"),
     checkOutLng: toNumberOrNull(payload.checkOutLng, "checkOutLng"),
     checkOutAccuracyM: toNumberOrNull(payload.checkOutAccuracyM, "checkOutAccuracyM"),
-    checkOutAt: toNullableDate(payload.checkOutAt, "checkOutAt"),
+    checkOutAt,
     checkOutDistanceM: toNumberOrNull(payload.checkOutDistanceM, "checkOutDistanceM"),
     checkOutVerified: payload.checkOutVerified,
     checkOutOutOfRange: payload.checkOutOutOfRange,
@@ -207,10 +235,14 @@ export async function upsertVisit(payload: VisitSyncPayload): Promise<PrismaVisi
       clientId: payload.clientId,
       supervisorId: payload.supervisorId,
       costCenterId: payload.costCenterId,
+      status: deviceStatus ?? "ASSIGNED",
       clientCreatedAt: toDate(payload.clientCreatedAt, "clientCreatedAt"),
-      ...data,
+      ...fields,
     },
-    update: data,
+    update: {
+      ...(deviceStatus !== null ? { status: deviceStatus } : {}),
+      ...fields,
+    },
   });
 }
 
@@ -453,11 +485,15 @@ export async function recalculateVisitGeofence(
 export async function assertCanCheckOut(visitId: string): Promise<void> {
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
-    select: { checkInAt: true },
+    select: { checkInAt: true, status: true },
   });
 
   if (visit === null) {
     throw new DataError(`No existe la visita ${visitId}.`, "PARENT_NOT_FOUND");
+  }
+
+  if (visit.status === "CANCELLED") {
+    throw new DataError("La visita fue cancelada por el coordinador.", "INVALID_PAYLOAD");
   }
 
   if (visit.checkInAt === null) {
@@ -474,11 +510,15 @@ export async function assertCanCheckOut(visitId: string): Promise<void> {
 export async function assertCanCheckIn(visitId: string): Promise<void> {
   const visit = await prisma.visit.findUnique({
     where: { id: visitId },
-    select: { checkInAt: true },
+    select: { checkInAt: true, status: true },
   });
 
   if (visit === null) {
     throw new DataError(`No existe la visita ${visitId}.`, "PARENT_NOT_FOUND");
+  }
+
+  if (visit.status === "CANCELLED") {
+    throw new DataError("La visita fue cancelada por el coordinador.", "INVALID_PAYLOAD");
   }
 
   if (visit.checkInAt !== null) {
@@ -659,6 +699,7 @@ export function toVisitDTO(visit: PrismaVisit): SharedVisit {
     supervisorId: visit.supervisorId,
     costCenterId: visit.costCenterId,
     status: visit.status,
+    scheduledAt: visit.scheduledAt?.toISOString() ?? null,
     checklistTemplateId: visit.checklistTemplateId,
     checkInLat: visit.checkInLat,
     checkInLng: visit.checkInLng,

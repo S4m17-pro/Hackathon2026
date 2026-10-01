@@ -35,3 +35,7 @@ yarn-error.log*
 
 # prisma
 /prisma/generated/
+
+# fotos subidas por /api/evidence
+/public/uploads/*
+!/public/uploads/.gitkeep

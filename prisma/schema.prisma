@@ -41,6 +41,8 @@ enum VisitStatus {
   ASSIGNED
   IN_PROGRESS
   COMPLETED
+  /// RF-ASI-01. Solo la escribe el coordinador. El sync del dispositivo no la revierte.
+  CANCELLED
 }
 
 enum NoveltyPriority {
@@ -121,6 +123,9 @@ model Visit {
   supervisorId String
   costCenterId String
   status       VisitStatus @default(ASSIGNED)
+  /// RF-ASI-01. Fecha y hora programadas por el coordinador.
+  /// El sync del dispositivo no la pisa: no viaja en `VisitSyncPayload`.
+  scheduledAt  DateTime?
 
   /// Si el dispositivo no logro la precarga, se duplica la plantilla aqui
   /// para que el supervisor pueda diligenciarla sin red (RF-OFF-01).
@@ -167,6 +172,7 @@ model Visit {
   @@index([supervisorId])
   @@index([costCenterId])
   @@index([status])
+  @@index([scheduledAt])
   @@index([clientCreatedAt])
   /// RF-PAN-08: el panel busca check-ins fuera de rango y visitas demoradas.
   @@index([checkInOutOfRange])
