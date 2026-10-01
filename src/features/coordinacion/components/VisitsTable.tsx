@@ -1,3 +1,4 @@
+import type { VisitStatus } from "@/shared/types";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import {
@@ -9,43 +10,27 @@ import {
   TableRow,
 } from "@/shared/ui/table";
 
-const visits = [
-  {
-    center: "Centro Norte",
-    supervisor: "Ana Ruiz",
-    status: "En curso",
-    tone: "progress",
-    checkIn: "08:12",
-  },
-  {
-    center: "Torre Central",
-    supervisor: "Luis Pérez",
-    status: "Asignada",
-    tone: "neutral",
-    checkIn: "—",
-  },
-  {
-    center: "Plaza Mayor",
-    supervisor: "Camila Soto",
-    status: "Completada",
-    tone: "done",
-    checkIn: "07:40",
-  },
-  {
-    center: "Bodega Sur",
-    supervisor: "Ana Ruiz",
-    status: "En curso",
-    tone: "progress",
-    checkIn: "09:05",
-  },
-] as const;
+export interface DashboardVisitRow {
+  id: string;
+  center: string;
+  supervisor: string;
+  status: VisitStatus;
+  checkIn: string;
+}
 
-export function VisitsTable() {
+const statusLabel: Record<VisitStatus, string> = {
+  ASSIGNED: "Asignada",
+  IN_PROGRESS: "En curso",
+  COMPLETED: "Completada",
+  CANCELLED: "Cancelada",
+};
+
+export function VisitsTable({ rows }: { rows: DashboardVisitRow[] }) {
   return (
     <Card>
       <CardHeader>
         <CardTitle>Visitas del día</CardTitle>
-        <CardDescription>Datos de muestra hasta conectar las lecturas del coordinador.</CardDescription>
+        <CardDescription>Horario de Bogotá. El check-in es la hora en campo.</CardDescription>
       </CardHeader>
       <CardContent>
         <Table>
@@ -58,16 +43,32 @@ export function VisitsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visits.map((visit) => (
-              <TableRow key={`${visit.center}-${visit.supervisor}`}>
-                <TableCell className="font-medium">{visit.center}</TableCell>
-                <TableCell>{visit.supervisor}</TableCell>
-                <TableCell>
-                  <Badge tone={visit.tone}>{visit.status}</Badge>
-                </TableCell>
-                <TableCell>{visit.checkIn}</TableCell>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4}>No hay visitas para hoy.</TableCell>
               </TableRow>
-            ))}
+            ) : (
+              rows.map((visit) => (
+                <TableRow key={visit.id}>
+                  <TableCell className="font-medium">{visit.center}</TableCell>
+                  <TableCell>{visit.supervisor}</TableCell>
+                  <TableCell>
+                    <Badge
+                      tone={
+                        visit.status === "COMPLETED"
+                          ? "done"
+                          : visit.status === "IN_PROGRESS"
+                            ? "progress"
+                            : "neutral"
+                      }
+                    >
+                      {statusLabel[visit.status]}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>{visit.checkIn}</TableCell>
+                </TableRow>
+              ))
+            )}
           </TableBody>
         </Table>
       </CardContent>
