@@ -35,3 +35,6 @@ yarn-error.log*
 
 # prisma
 /prisma/generated/
+
+# fotos subidas por POST /api/photos
+/uploads
