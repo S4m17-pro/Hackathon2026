@@ -1,8 +1,7 @@
-import dynamic from "next/dynamic";
-
 import { requireRole } from "@/app/(auth)/session";
 import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
+import { SupervisorsMapDynamic } from "@/features/coordinacion/components/SupervisorsMapDynamic";
 import type {
   MapCostCenter,
   MapScannedQr,
@@ -19,19 +18,6 @@ import {
   listVisits,
 } from "@/features/coordinacion/queries";
 
-const SupervisorsMap = dynamic(
-  () =>
-    import("@/features/coordinacion/components/SupervisorsMap").then(
-      (mod) => mod.SupervisorsMap,
-    ),
-  {
-    ssr: false,
-    loading: () => (
-      <div className="h-[32rem] w-full rounded-2xl border border-zinc-200 bg-white" />
-    ),
-  },
-);
-
 export default async function DashboardPage() {
   await requireRole("COORDINADOR");
   const data = await loadDashboard();
@@ -46,7 +32,11 @@ export default async function DashboardPage() {
         <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950">{data.loadError}</p>
       ) : null}
       <KpiCards items={data.kpis} />
-      <SupervisorsMap centers={data.centers} supervisors={data.supervisors} scans={data.scans} />
+      <SupervisorsMapDynamic
+        centers={data.centers}
+        supervisors={data.supervisors}
+        scans={data.scans}
+      />
       <VisitsTable rows={data.visits} />
       <EvidenceTraceTable rows={data.evidence} />
     </main>
