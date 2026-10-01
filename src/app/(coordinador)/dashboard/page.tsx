@@ -1,6 +1,7 @@
 import { requireRole } from "@/app/(auth)/session";
 import { AlertsSection, type OutOfRangeAlert, type DelayedAlert, type CriticalNoveltyAlert } from "@/features/coordinacion/components/AlertsSection";
 import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
+import { ExportReportButton } from "@/features/coordinacion/components/ExportReportButton";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
 import type {
   MapCostCenter,
@@ -23,15 +24,24 @@ import {
   listVisits,
 } from "@/features/coordinacion/queries";
 
+const FALLBACK_COST_CENTERS: MapCostCenter[] = [
+  { id: "cc-1", name: "Plaza Central", lat: 4.658392, lng: -74.093498 },
+  { id: "cc-2", name: "Centro Empresarial", lat: 4.678431, lng: -74.058319 },
+  { id: "cc-3", name: "Parque Centro", lat: 4.706812, lng: -74.068127 },
+];
+
 export default async function DashboardPage() {
   await requireRole("COORDINADOR");
   const data = await loadDashboard();
 
   return (
     <main className="flex flex-col gap-6 p-8">
-      <header className="flex flex-col gap-1">
-        <p className="text-xs tracking-[0.16em] text-zinc-500 uppercase">Operación de Campo</p>
-        <h1 className="text-3xl font-semibold">Panel de Control del Coordinador</h1>
+      <header className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-xs tracking-[0.16em] text-zinc-500 uppercase">Operación de Campo</p>
+          <h1 className="text-3xl font-semibold">Panel de Control del Coordinador</h1>
+        </div>
+        <ExportReportButton />
       </header>
 
       {data.loadError ? (
@@ -122,7 +132,6 @@ async function loadDashboard() {
       .filter((n) => n.priority === "CRITICAL" || n.priority === "HIGH")
       .slice(0, 6)
       .map((n) => {
-        // Encontrar la visita para traer supervisor y centro
         const visit = visits.find((v) => v.id === n.visitId);
         return {
           id: n.id,
@@ -182,14 +191,14 @@ async function loadDashboard() {
           status: visit.status,
           checkIn: formatWhen(visit.checkInAt),
         })),
-      centers: operations.costCenters.map(
+      centers: operations.costCenters.length > 0 ? operations.costCenters.map(
         (center): MapCostCenter => ({
           id: center.id,
           name: center.name,
           lat: center.lat,
           lng: center.lng,
         }),
-      ),
+      ) : FALLBACK_COST_CENTERS,
       supervisors: operations.lastPositions.map(
         (position): MapSupervisor => ({
           id: position.supervisorId,
@@ -213,7 +222,7 @@ async function loadDashboard() {
     };
   } catch {
     return {
-      loadError: "No se pudo leer la base. Revisa que MySQL esté encendido.",
+      loadError: "No se pudo leer la base. Mostrando centros base. Revisa que MySQL esté encendido con 'docker compose up -d'.",
       kpis: [
         { label: "Visitas programadas", value: "--", hint: "Sin conexión a la base" },
         { label: "Completadas", value: "--", hint: "Sin conexión a la base" },
@@ -228,7 +237,7 @@ async function loadDashboard() {
         criticalNovelties: [],
       },
       visits: [],
-      centers: [],
+      centers: FALLBACK_COST_CENTERS,
       supervisors: [],
       scans: [],
       evidence: [],
