@@ -47,6 +47,13 @@ const COST_CENTERS = [
 /** Radio por defecto del SDD (RF-QR-01). */
 const QR_RADIUS_METERS = 50;
 
+/** Horarios del 1 oct 2026, hora de Bogota (UTC-5): 08:00, 10:00 y 14:00. */
+const VISIT_SCHEDULE_UTC = [
+  "2026-10-01T13:00:00.000Z",
+  "2026-10-01T15:00:00.000Z",
+  "2026-10-01T19:00:00.000Z",
+] as const;
+
 const CHECKLIST_ITEMS = [
   "Barrer y trapear el area asignada",
   "Reponer papel higienico en todos los puntos",
@@ -97,7 +104,8 @@ async function main(): Promise<void> {
     });
   }
 
-  for (const center of COST_CENTERS) {
+  for (const [index, center] of COST_CENTERS.entries()) {
+    const scheduledAt = new Date(VISIT_SCHEDULE_UTC[index] ?? VISIT_SCHEDULE_UTC[0]);
     const costCenter =
       (await prisma.costCenter.findFirst({ where: { name: center.name } })) ??
       (await prisma.costCenter.create({ data: center }));
@@ -137,9 +145,15 @@ async function main(): Promise<void> {
         costCenterId: costCenter.id,
         checklistTemplateId: template.id,
         status: "ASSIGNED",
-        clientCreatedAt: new Date(),
+        scheduledAt,
+        clientCreatedAt: scheduledAt,
       },
-      update: { supervisorId: supervisor.id, costCenterId: costCenter.id },
+      update: {
+        supervisorId: supervisor.id,
+        costCenterId: costCenter.id,
+        checklistTemplateId: template.id,
+        scheduledAt,
+      },
     });
   }
 

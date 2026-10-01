@@ -13,7 +13,7 @@
 
 export type Role = "SUPERVISOR" | "COORDINADOR";
 
-export type VisitStatus = "ASSIGNED" | "IN_PROGRESS" | "COMPLETED";
+export type VisitStatus = "ASSIGNED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 
 export type NoveltyPriority = "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
@@ -63,6 +63,12 @@ export interface Visit {
   supervisorId: string;
   costCenterId: string;
   status: VisitStatus;
+  /**
+   * RF-ASI-01. La fija el coordinador. Null si la visita nacio en el
+   * dispositivo y todavia no tiene horario de oficina.
+   * El panel filtra el dia por este campo, no por `clientCreatedAt`.
+   */
+  scheduledAt: string | null;
 
   /** Copia de la plantilla para poder diligenciarla sin red (RF-OFF-01). */
   checklistTemplateId: string | null;
@@ -197,6 +203,11 @@ export interface GeoPoint {
 }
 
 /** Campos que el dispositivo conoce al hacer check-in / check-out. */
+/**
+ * Lo que el dispositivo puede escribir de una visita.
+ * `scheduledAt` no va aqui: es del coordinador. Un `status` `CANCELLED`
+ * que llegue en este payload se ignora; cancelar es `cancelVisit`.
+ */
 export interface VisitSyncPayload {
   clientId: string;
   supervisorId: string;

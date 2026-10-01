@@ -38,3 +38,6 @@ yarn-error.log*
 
 # fotos subidas por POST /api/photos
 /uploads
+# fotos subidas por /api/evidence
+/public/uploads/*
+!/public/uploads/.gitkeep
