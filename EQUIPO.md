@@ -106,6 +106,12 @@ No puede editar:
 
 Entregable: `syncOperation` despacha al helper de Juan que corresponda según `op.type` y devuelve `SyncOperationResult`. El route handler de fotos guarda el archivo y devuelve la `url` que luego entra en la evidencia.
 
+Regla 3 del SDD: el servidor es la entidad definitiva de verdad geografica. Cuando sincroniza un check-in o un check-out, corre `recalculateVisitGeofence(serverId, "checkIn" | "checkOut")` de `data.ts` y ese valor pisa el que midio el dispositivo. Samuel calcula en local solo para dar feedback inmediato.
+
+Nada de esto bloquea la operacion (regla 3): si el supervisor esta fuera de rango, el check-in se guarda con `checkInOutOfRange = true` y el panel lo muestra como alerta (RF-PAN-08). No devuelvas un error al dispositivo por geolocalizacion.
+
+Si el payload trae coordenadas nulas, `recalculateVisitGeofence` devuelve `null` y no toca los flags. Eso pasa cuando el usuario no concedio GPS (RNF-10) y es valido.
+
 Helpers ya escritos en `src/shared/lib/data.ts`. No los reimplementes:
 
 | `op.type` | Helper |
@@ -114,10 +120,20 @@ Helpers ya escritos en `src/shared/lib/data.ts`. No los reimplementes:
 | `qrScan.upsert` | `upsertQrScan(payload)` |
 | `novelty.upsert` | `upsertNovelty(payload)` |
 | `evidence.upsert` | `upsertEvidence(payload)` |
+| `checklistItem.upsert` | `upsertChecklistItemResult(payload)` |
 
 Los helpers ya resuelven `visitClientId` y `ownerClientId` al `id` de servidor y tiran `DataError` con `PARENT_NOT_FOUND` o `OWNER_NOT_FOUND` si el padre no existe. `syncOperation` traduce ese `DataError` a `SyncOperationResult` con `ok: false` y el `error` como mensaje, para que el outbox pueda reintentar. Un padre ausente no es un error de codigo: no lo rechaces con excepcion, dejalo para el reintento.
 
-Para convertir filas de Prisma a los tipos compartidos estan `toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO` y `toEvidenceDTO` en el mismo archivo.
+Los codigos de `DataError` son `PARENT_NOT_FOUND`, `OWNER_NOT_FOUND`, `INVALID_PAYLOAD`, `NO_CHECKIN`, `INCOMPLETE_CHECKLIST` y `ALREADY_CHECKED_IN`.
+
+Reglas que los helpers ya aplican y que no debes reimplementar:
+
+- Nada se bloquea por estar fuera de rango (regla 3 del SDD): se guarda el flag y la operacion sigue.
+- Un update de visita nunca pisa `supervisorId` ni `costCenterId`, ni `clientCreatedAt`, ni `receivedAt`.
+- Un update de novedad nunca toca `status` ni los campos de cierre. El ciclo de vida es del coordinador (regla 4).
+- `upsertChecklistItemResult` va por `(visitId, itemId)`, no por `clientId`: hay una sola respuesta por item y visita. Si el supervisor reanuda con otro `clientId`, actualiza en vez de duplicar.
+
+Para convertir filas de Prisma a los tipos compartidos estan `toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO`, `toChecklistItemResultDTO` y `toEvidenceDTO` en el mismo archivo.
 
 No reescribas Dexie ni las pantallas. Samuel importa tu action; no la implementa.
 
@@ -146,8 +162,23 @@ Entregable: actions de asignación y QR, y queries listas para que el dashboard 
 
 Dos cosas que cambian como se consulta la base:
 
-- Las lecturas que devuelves al dashboard van envueltas en los DTO de Juan (`toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO`, `toEvidenceDTO`, en `src/shared/lib/data.ts`). Así el cliente recibe fechas ISO-8601 y no objetos `Date` de Prisma.
+- Las lecturas que devuelves al dashboard van envueltas en los DTO de Juan (`toVisitDTO`, `toQrScanDTO`, `toNoveltyDTO`, `toChecklistItemResultDTO`, `toEvidenceDTO`, en `src/shared/lib/data.ts`). Así el cliente recibe fechas ISO-8601 y no objetos `Date` de Prisma.
 - `prisma` se importa desde `@/shared/lib/prisma`. Es el cliente con singleton, no instancies `PrismaClient`.
+- CA-05: el panel muestra `clientCreatedAt`, que es la hora en campo. `receivedAt` solo sirve para auditar cuándo llegó al servidor.
+
+Helpers de Juan que te sirven, todos en `src/shared/lib/data.ts`:
+
+| Para qué | Función |
+| --- | --- |
+| KPIs (RF-PAN-01) | leer `Visit` y contar por `status` |
+| Alertas de GPS (RF-PAN-08) | filtrar por `checkInOutOfRange: true` |
+| Closing de novedades (RF-NOV-04, CA-07) | `changeNoveltyStatus(id, status, { closedById, resolutionAction })` |
+| Plantilla por centro de costo (RF-ASI-03) | `assignChecklistTemplateToCostCenter(costCenterId, templateId)` |
+| Estado del checklist (RF-PAN-07) | `findPendingRequiredItems(visitId)` y `getVisitChecklist(visitId)` |
+
+`changeNoveltyStatus` con `RESOLVED` exige `closedById` y `resolutionAction`, y tira `DataError` con `INVALID_PAYLOAD` si faltan. Los tres datos de la regla 4 van juntos o ninguno. La validación ya está hecha: no la repitas.
+
+QrPoint lleva `isActive` (RF-QR-02). Desactivar es cambiar el flag, nunca borrar la fila: RF-QR-06 distingue "existe pero está inactivo" de "no existe". El radio por defecto es 50 m, no 30.
 
 Si una query necesita logica de negocio que no sea lectura, va en `actions.ts`, no en `queries.ts`.
 
@@ -186,7 +217,23 @@ Dos notas sobre el arranque, ya resuelto por Juan:
 - `src/app/globals.css` ya importa Tailwind v4 y `src/app/layout.tsx` ya lo importa. Usa clases utilitarias, no hace falta CSS aparte.
 - Tailwind no trae los estilos de `<a>`, `<button>` ni `<h1>` por defecto. Si un control te sale sin fondo ni padding, es falta de clases, no un problema de configuracion.
 
-Datos de prueba para desarrollar: `npm run db:seed` deja 2 usuarios, 3 centros de costo, 9 QR points (codigos `QR-PLAZA-NORTE-1`, etc.) y 3 visitas asignadas al supervisor.
+Login (RF-AUT-01). Juan ya dejo el hash con scrypt en `src/shared/lib/password.ts`:
+
+- `supervisor@demo.test` / `supervisor123`
+- `coordinador@demo.test` / `coordinador123`
+
+Usá `verifyPassword(plain, stored)` de ahi. Nunca compares contrasenas con `===` y nunca mandes el `passwordHash` al cliente: el tipo `User` de `shared/types` no lo expone a proposito.
+
+Datos de prueba para desarrollar: `npm run db:seed` deja 2 usuarios, 3 centros de costo con direccion, 9 QR points activos con radio 50 m (codigos `QR-PLAZA-NORTE-1`, etc.), 1 plantilla de checklist de 6 items y 3 visitas asignadas con esa plantilla.
+
+Sobre el checklist (RF-SUP-01/02, CA-02):
+
+- La plantilla y sus items son del coordinador. El supervisor solo marca.
+- Un item sin marcar NO tiene fila en la base. Lo pendiente se deduce de la plantilla con `findPendingRequiredItems`. No esperes encontrar filas en PENDING.
+- Cada marca genera un `checklistItem.upsert` en el outbox. El `clientId` es el de la fila que creo Juan en el dispositivo; el servidor lo resuelve por `(visita, item)`.
+- La PWA precarga la plantilla y sus items (RF-OFF-01) para poder diligenciar en modo avion.
+
+Sobre las dos fechas de todo payload (regla 5, CA-05): mandá `clientCreatedAt` con la hora real del dispositivo cuando ocurrio el hecho. Si la mandas con la hora de ahora, el panel va a mentir. El `receivedAt` lo pone el servidor, no lo envies.
 
 Importa `syncOperation` y las queries del coordinador. No reescribas esas funciones. Separa UI (`"use client"`) de servidor (`"use server"`).
 
@@ -204,9 +251,11 @@ Orden de merge a `main`:
 
 Checklist:
 
-- Cada entidad creada en el dispositivo hace `upsert` por `clientId` (`Visit`, `QrScan`, `Novelty`, `Evidence`).
+- Cada entidad creada en el dispositivo hace `upsert` por `clientId` (`Visit`, `QrScan`, `Novelty`, `Evidence`) o por `(visitId, itemId)` (`ChecklistItemResult`).
 - `visitClientId` y `ownerClientId` quedan resueltos a `id` de servidor antes de guardar hijos.
 - `syncOperation` traduce `DataError` a `SyncOperationResult` con `ok: false` (no lanza excepciones para padres ausentes).
+- `recalculateVisitGeofence` se corre en cada sync de check-in y check-out, y el resultado del servidor pisa el del dispositivo.
+- Un sync de novedad nunca reabre una novedad cerrada.
 - Las páginas importan las actions y las queries reales, no stubs.
 - `package.json` y el lockfile se instalan una sola vez, con las dependencias anotadas en los tres PR.
 - Samuel prueba en `main`: login, visitas, escáner QR y dashboard.

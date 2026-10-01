@@ -12,6 +12,12 @@ services:
       MYSQL_PASSWORD: supervision
     volumes:
       - supervision_mysql_data:/var/lib/mysql
+      # Permisos para la shadow database de Prisma. Sin esto,
+      # `npm run db:migrate` falla con P3014 porque el usuario `supervision`
+      # solo tiene derechos sobre `supervision` y no puede crear la base
+      # temporal que Prisma usa para detectar drift.
+      # Solo corre la primera vez, cuando el volumen se crea.
+      - ./docker/mysql-init:/docker-entrypoint-initdb.d:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
