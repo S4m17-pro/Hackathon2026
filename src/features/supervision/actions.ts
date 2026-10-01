@@ -2,6 +2,7 @@
 
 import {
   DataError,
+  upsertChecklistItemResult,
   upsertEvidence,
   upsertNovelty,
   upsertQrScan,
@@ -50,6 +51,8 @@ async function dispatch(op: OutboxOp) {
       return upsertNovelty(op.payload);
     case "evidence.upsert":
       return upsertEvidence(op.payload);
+    case "checklistItem.upsert":
+      return upsertChecklistItemResult(op.payload);
   }
 }
 
