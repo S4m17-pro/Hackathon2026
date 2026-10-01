@@ -1,15 +1,16 @@
 "use client";
 
+import { CalendarCheck, LayoutDashboard, TriangleAlert, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
 import { cn } from "@/shared/ui/cn";
 
-const links = [
-  { href: "/dashboard", label: "Dashboard" },
-  { href: "/asignaciones", label: "Asignaciones" },
-  { href: "/novedades", label: "Novedades" },
+const links: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/asignaciones", label: "Asignaciones", icon: CalendarCheck },
+  { href: "/novedades", label: "Novedades", icon: TriangleAlert },
 ];
 
 export default function CoordinadorLayout({ children }: { children: ReactNode }) {
@@ -41,10 +42,11 @@ export default function CoordinadorLayout({ children }: { children: ReactNode })
                   key={link.href}
                   href={link.href}
                   className={cn(
-                    "rounded-xl px-3 py-2 text-sm",
+                    "flex items-center gap-2 rounded-xl px-3 py-2 text-sm",
                     active ? "bg-white text-zinc-950" : "text-zinc-300 hover:bg-zinc-900",
                   )}
                 >
+                  <link.icon className="size-4" aria-hidden />
                   {link.label}
                 </Link>
               );

@@ -9,12 +9,13 @@ import {
   upsertQrScan,
   upsertVisit,
 } from "@/shared/lib/data";
-import type { OutboxOp, SyncOperationResult } from "@/shared/types";
+import type { OutboxOp, SyncOperationResult, VisitSyncPayload } from "@/shared/types";
 
 /**
  * Punto único de sincronización del supervisor.
- * Despacha al helper de Juan según `op.type` (upsert por `clientId`).
- * Un padre ausente vuelve como `ok: false` para que el outbox reintente.
+ * Despacha al helper de Juan según `op.type` y traduce `DataError` a
+ * `SyncOperationResult` con `ok: false`. Un padre ausente no se lanza:
+ * el outbox lo reintenta.
  */
 export async function syncOperation(op: OutboxOp): Promise<SyncOperationResult> {
   if (op.clientId !== op.payload.clientId) {
@@ -25,23 +26,6 @@ export async function syncOperation(op: OutboxOp): Promise<SyncOperationResult> 
     };
   }
 
-  try {
-    const row = await dispatch(op);
-
-    return {
-      ok: true,
-      clientId: op.clientId,
-      serverId: row.id,
-    };
-import type { OutboxOp, SyncOperationResult, VisitSyncPayload } from "@/shared/types";
-
-/**
- * Punto único de sincronización del supervisor.
- * Despacha al helper de Juan según `op.type` y traduce `DataError` a
- * `SyncOperationResult` con `ok: false`. Un padre ausente no se lanza:
- * el outbox lo reintenta.
- */
-export async function syncOperation(op: OutboxOp): Promise<SyncOperationResult> {
   try {
     switch (op.type) {
       case "visit.upsert":
@@ -76,21 +60,6 @@ export async function syncOperation(op: OutboxOp): Promise<SyncOperationResult> 
   }
 }
 
-async function dispatch(op: OutboxOp) {
-  switch (op.type) {
-    case "visit.upsert":
-      return upsertVisit(op.payload);
-    case "qrScan.upsert":
-      return upsertQrScan(op.payload);
-    case "novelty.upsert":
-      return upsertNovelty(op.payload);
-    case "evidence.upsert":
-      return upsertEvidence(op.payload);
-    case "checklistItem.upsert":
-      return upsertChecklistItemResult(op.payload);
-  }
-}
-
 function messageFrom(error: unknown): string {
   if (error instanceof DataError) {
     return error.message;
@@ -105,9 +74,6 @@ function messageFrom(error: unknown): string {
   }
 
   return "Error inesperado al sincronizar.";
-      error: error instanceof Error ? error.message : "Error de sincronizacion",
-    };
-  }
 }
 
 async function syncVisit(
