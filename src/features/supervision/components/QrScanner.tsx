@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, MapPin, QrCode } from "lucide-react";
+import { Camera, QrCode } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -12,7 +12,6 @@ import {
   type QrLocationCheck,
 } from "@/features/supervision/offline/qrLookup";
 import type { GeoPoint } from "@/shared/types";
-import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Input } from "@/shared/ui/input";
@@ -177,9 +176,16 @@ export function QrScanner({
     try {
       const position = await readPosition();
       const check = await verifyQrLocation(code, position);
-      setPhase({ status: "result", code, check });
+
+      if (!check.found || !check.point) {
+        setPhase({ status: "result", code, check });
+        return;
+      }
+
+      await openEvidence(code, check);
     } catch (error) {
       const point = await findCachedQrPoint(code);
+
       if (!point) {
         setPhase({
           status: "result",
@@ -194,16 +200,12 @@ export function QrScanner({
         return;
       }
 
-      setPhase({
-        status: "result",
-        code,
-        check: {
-          found: true,
-          point,
-          verified: false,
-          isOutOfRange: false,
-          error: error instanceof Error ? error.message : "No se pudo validar la ubicación.",
-        },
+      await openEvidence(code, {
+        found: true,
+        point,
+        verified: false,
+        isOutOfRange: false,
+        error: error instanceof Error ? error.message : "No se pudo validar la ubicación.",
       });
     }
   }
@@ -265,42 +267,16 @@ export function QrScanner({
         <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950">{phase.message}</p>
       ) : null}
 
-      {result ? (
+      {result && !result.check.found ? (
         <Card>
           <CardHeader>
             <CardDescription>{result.code}</CardDescription>
-            <CardTitle>{result.check.point?.areaName ?? "Código no reconocido"}</CardTitle>
+            <CardTitle>Código no reconocido</CardTitle>
           </CardHeader>
           <CardContent>
-            {result.check.found ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={result.check.verified ? "online" : "offline"}>
-                    <MapPin className="size-3.5" aria-hidden />
-                    {result.check.verified ? "Dentro del área" : "Fuera de rango"}
-                  </Badge>
-                  {typeof result.check.distanceMeters === "number" ? (
-                    <span className="text-sm text-zinc-500">
-                      {Math.round(result.check.distanceMeters)} m
-                    </span>
-                  ) : null}
-                </div>
-                {result.check.error ? (
-                  <p className="text-sm text-zinc-500">{result.check.error}</p>
-                ) : null}
-                <Button
-                  variant="contrast"
-                  className="w-full"
-                  onClick={() => void openEvidence(result.code, result.check)}
-                >
-                  Abrir evidencias
-                </Button>
-              </div>
-            ) : (
-              <p className="text-sm text-zinc-500">
-                {result.check.error ?? "Ese código no está en este teléfono."}
-              </p>
-            )}
+            <p className="text-sm text-zinc-500">
+              {result.check.error ?? "Ese código no está en este teléfono."}
+            </p>
             <Button variant="outline" className="w-full" onClick={() => setPhase({ status: "idle" })}>
               Escanear otro
             </Button>
@@ -319,7 +295,7 @@ export function QrScanner({
           />
         </label>
         <Button type="submit" variant="outline" className="w-full" disabled={manualCode.trim().length === 0}>
-          Validar código
+          Registrar evidencia del área
         </Button>
       </form>
     </div>
