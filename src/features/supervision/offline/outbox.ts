@@ -282,11 +282,37 @@ export async function syncAll(): Promise<SyncSummary> {
       await markOutboxOp(op.clientId, { status: "syncing" });
 
       try {
+        // Si es una evidencia fotográfica guardada en IndexedDB, subimos primero el blob a /api/photos
+        if (op.type === "evidence.upsert" && (!op.payload.url || !op.payload.url.startsWith("/"))) {
+          const localPhoto = await db.photos.get(op.clientId);
+          if (localPhoto) {
+            const formData = new FormData();
+            formData.append("clientId", op.clientId);
+            formData.append("file", localPhoto.blob, localPhoto.fileName);
+
+            const uploadRes = await fetch("/api/photos", {
+              method: "POST",
+              body: formData,
+            });
+
+            if (!uploadRes.ok) {
+              const errJson = await uploadRes.json().catch(() => ({}));
+              throw new Error(errJson.error ?? `Error al subir foto (HTTP ${uploadRes.status})`);
+            }
+
+            const uploadData = await uploadRes.json();
+            if (uploadData.url) {
+              op.payload.url = uploadData.url;
+            }
+          }
+        }
+
         const result = await syncOperation(op);
 
         if (result.ok) {
-          // Éxito: eliminamos la operación de Dexie
+          // Éxito: eliminamos la operación y su foto local de Dexie
           await db.outbox.delete(op.clientId);
+          await db.photos.delete(op.clientId);
           summary.synced += 1;
         } else {
           // El servidor devolvió un error de validación o procesamiento
