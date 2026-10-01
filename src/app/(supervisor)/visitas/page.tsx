@@ -1,7 +1,6 @@
 import { requireRole } from "@/app/(auth)/session";
 import { CheckInButton } from "@/features/supervision/components/CheckInButton";
 import { SupervisorCatalogPreloader } from "@/features/supervision/components/SupervisorCatalogPreloader";
-import { SyncStatusBadge } from "@/features/supervision/components/SyncStatusBadge";
 import {
   bogotaToday,
   listCostCenters,
@@ -31,13 +30,10 @@ export default async function VisitasPage() {
       {/* Precarga automática en Dexie para garantizar disponibilidad 100% offline */}
       <SupervisorCatalogPreloader points={qrCatalog} />
 
-      <header className="flex items-center justify-between gap-3">
-        <div>
+        <header>
           <p className="text-xs tracking-wide text-zinc-500 uppercase">Hoy</p>
           <h1 className="text-2xl font-semibold">Visitas</h1>
-        </div>
-        <SyncStatusBadge />
-      </header>
+        </header>
 
       {data.loadError ? (
         <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950">{data.loadError}</p>
@@ -98,7 +94,7 @@ async function loadTodayVisits(supervisorId: string) {
     ]);
 
     const supervisorName = new Map(supervisors.map((person) => [person.id, person.name]));
-    const centerName = new Map(centers.map((center) => [center.id, center.name]));
+    const centerById = new Map(centers.map((center) => [center.id, center]));
 
     return {
       loadError: null,
@@ -112,7 +108,9 @@ async function loadTodayVisits(supervisorId: string) {
           clientCreatedAt: visit.clientCreatedAt,
           status: visit.status,
           supervisorName: supervisorName.get(visit.supervisorId) ?? "Supervisor",
-          centerName: centerName.get(visit.costCenterId) ?? "Centro",
+          centerName: centerById.get(visit.costCenterId)?.name ?? "Centro",
+          centerLat: centerById.get(visit.costCenterId)?.lat ?? null,
+          centerLng: centerById.get(visit.costCenterId)?.lng ?? null,
           when: formatWhen(visit.scheduledAt),
         })),
     };
