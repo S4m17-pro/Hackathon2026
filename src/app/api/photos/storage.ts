@@ -1,14 +1,12 @@
-import { mkdir, readdir, unlink, writeFile } from "node:fs/promises";
-import path from "node:path";
-
-/** Fotos persistidas en disco. La URL pública las sirve `GET /api/photos/:clientId`. */
-export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
+import { head, put } from "@vercel/blob";
 
 const MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
 };
+
+const EXTENSIONS = ["jpg", "png", "webp"] as const;
 
 const MAX_BYTES = 1_500_000;
 
@@ -33,8 +31,8 @@ export function assertClientId(clientId: string): string {
 }
 
 /**
- * Guarda (o reemplaza) la foto de un `clientId`.
- * Reenviar la misma evidencia no deja archivos viejos de otra extensión.
+ * Sube (o reemplaza) la foto en Vercel Blob.
+ * La `url` devuelta es pública y es la que entra en la evidencia.
  */
 export async function savePhoto(
   clientId: string,
@@ -55,53 +53,36 @@ export async function savePhoto(
     throw new PhotoError("La foto supera el tamaño máximo (1.5 MB).");
   }
 
-  await mkdir(UPLOAD_DIR, { recursive: true });
-  await removeOtherExtensions(clientId, ext);
-  await writeFile(path.join(UPLOAD_DIR, `${clientId}.${ext}`), bytes);
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw new PhotoError("Falta BLOB_READ_WRITE_TOKEN.", 500);
+  }
 
-  return `/api/photos/${clientId}`;
+  const blob = await put(`photos/${clientId}.${ext}`, bytes, {
+    access: "public",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+    contentType: mimeType,
+  });
+
+  return blob.url;
 }
 
-export async function resolvePhoto(
-  clientId: string,
-): Promise<{ filePath: string; mimeType: string } | null> {
+/** URL pública del objeto, si existe con alguna extensión admitida. */
+export async function resolvePhotoUrl(clientId: string): Promise<string | null> {
   const safeId = assertClientId(clientId);
-  let names: string[];
 
-  try {
-    names = await readdir(UPLOAD_DIR);
-  } catch {
-    return null;
+  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+    throw new PhotoError("Falta BLOB_READ_WRITE_TOKEN.", 500);
   }
 
-  const name = names.find((entry) => entry.startsWith(`${safeId}.`));
-
-  if (!name) {
-    return null;
+  for (const ext of EXTENSIONS) {
+    try {
+      const blob = await head(`photos/${safeId}.${ext}`);
+      return blob.url;
+    } catch {
+      // Esa extensión no está en el store. Se prueba la siguiente.
+    }
   }
 
-  const ext = path.extname(name).slice(1);
-  const mimeType = Object.entries(MIME_EXT).find(([, value]) => value === ext)?.[0];
-
-  if (!mimeType) {
-    return null;
-  }
-
-  return { filePath: path.join(UPLOAD_DIR, name), mimeType };
-}
-
-async function removeOtherExtensions(clientId: string, keepExt: string): Promise<void> {
-  let names: string[];
-
-  try {
-    names = await readdir(UPLOAD_DIR);
-  } catch {
-    return;
-  }
-
-  await Promise.all(
-    names
-      .filter((name) => name.startsWith(`${clientId}.`) && path.extname(name) !== `.${keepExt}`)
-      .map((name) => unlink(path.join(UPLOAD_DIR, name))),
-  );
+  return null;
 }

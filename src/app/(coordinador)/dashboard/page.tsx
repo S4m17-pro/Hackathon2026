@@ -3,6 +3,7 @@ import { AlertsSection, type OutOfRangeAlert, type DelayedAlert, type CriticalNo
 import { EvidenceTraceTable } from "@/features/coordinacion/components/EvidenceTraceTable";
 import { ExportReportButton } from "@/features/coordinacion/components/ExportReportButton";
 import { KpiCards } from "@/features/coordinacion/components/KpiCards";
+import { SupervisorsMapDynamic } from "@/features/coordinacion/components/SupervisorsMapDynamic";
 import type {
   MapCostCenter,
   MapScannedQr,
@@ -50,6 +51,11 @@ export default async function DashboardPage() {
 
       {/* Tarjetas de Indicadores Clave (KPIs) */}
       <KpiCards items={data.kpis} />
+      <SupervisorsMapDynamic
+        centers={data.centers}
+        supervisors={data.supervisors}
+        scans={data.scans}
+      />
 
       {/* Sección de Alertas y Operaciones en Riesgo */}
       <AlertsSection
