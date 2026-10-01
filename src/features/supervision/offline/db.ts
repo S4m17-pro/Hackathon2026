@@ -1,31 +1,27 @@
 import Dexie, { type Table } from "dexie";
 
-import type { OutboxOp } from "@/shared/types";
+import type { OutboxOp, QrPoint } from "@/shared/types";
 
 /**
  * Blob de una evidencia todavía no subida.
- * `clientId` coincide con `Evidence.clientId` / la operación `evidence.upsert`.
+ * `clientId` coincide con la operación `evidence.upsert`.
+ * `ownerClientId` es el `clientId` de la visita, novedad o escaneo dueño.
  */
 export interface LocalPhoto {
   clientId: string;
+  ownerClientId: string;
   blob: Blob;
   mimeType: string;
   fileName: string;
   createdAt: string;
 }
 
-/**
- * Copia local de `QrPoint` para validar un escaneo sin red.
- * La llave primaria es `code` (lo que lee la cámara).
- */
-export interface CachedQrPoint {
-  code: string;
-  id: string;
-  costCenterId: string;
-  areaName: string;
-  lat: number;
-  lng: number;
-  radiusMeters: number;
+/** Copia local de `QrPoint`. La llave primaria es `code` (lo que lee la cámara). */
+export interface CachedQrPoint
+  extends Pick<
+    QrPoint,
+    "code" | "id" | "costCenterId" | "areaName" | "lat" | "lng" | "radiusMeters"
+  > {
   cachedAt: string;
 }
 
@@ -40,6 +36,12 @@ class SupervisionDB extends Dexie {
     this.version(1).stores({
       outbox: "clientId, type, status, enqueuedAt",
       photos: "clientId, createdAt",
+      qrPoints: "code, id, costCenterId",
+    });
+
+    this.version(2).stores({
+      outbox: "clientId, type, status, enqueuedAt",
+      photos: "clientId, ownerClientId",
       qrPoints: "code, id, costCenterId",
     });
   }
