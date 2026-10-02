@@ -764,22 +764,38 @@ function csvEscape(value: string): string {
 }
 
 async function checklistCompletion(): Promise<number> {
-  const visits = await prisma.visit.findMany({
-    where: { status: { not: "CANCELLED" }, checklistTemplateId: { not: null } },
-    select: { id: true },
-  });
+  const [templateItems, visitCounts, doneResultsCount] = await Promise.all([
+    prisma.checklistTemplateItem.findMany({
+      where: { required: true, costCenterId: null },
+      select: { templateId: true },
+    }),
+    prisma.visit.groupBy({
+      by: ["checklistTemplateId"],
+      where: { status: { not: "CANCELLED" }, checklistTemplateId: { not: null } },
+      _count: { _all: true },
+    }),
+    prisma.checklistItemResult.count({
+      where: {
+        visit: { status: { not: "CANCELLED" } },
+        status: { in: ["DONE", "NOT_DONE"] },
+        item: { required: true },
+      },
+    }),
+  ]);
 
-  let required = 0;
-  let pending = 0;
-
-  for (const visit of visits) {
-    const items = await getVisitChecklist(visit.id);
-    const requiredItems = items.filter((item) => item.required);
-    required += requiredItems.length;
-    pending += (await findPendingRequiredItems(visit.id)).length;
+  const reqPerTemplate = new Map<string, number>();
+  for (const item of templateItems) {
+    reqPerTemplate.set(item.templateId, (reqPerTemplate.get(item.templateId) ?? 0) + 1);
   }
 
-  return percent(required - pending, required);
+  let totalRequired = 0;
+  for (const vc of visitCounts) {
+    if (vc.checklistTemplateId) {
+      totalRequired += (reqPerTemplate.get(vc.checklistTemplateId) ?? 0) * vc._count._all;
+    }
+  }
+
+  return percent(doneResultsCount, totalRequired);
 }
 
 function percent(part: number, total: number): number {

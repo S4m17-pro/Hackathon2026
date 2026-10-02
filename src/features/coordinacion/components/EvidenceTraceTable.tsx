@@ -29,9 +29,9 @@ export function EvidenceTraceTable({ rows }: { rows: EvidenceTraceRow[] }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Evidencias</CardTitle>
+        <CardTitle className="text-lg font-semibold text-zinc-900">Trazabilidad de Evidencias Fotográficas</CardTitle>
         <CardDescription>
-          Quién la envió, a qué hora la tomó en campo y a qué hora llegó al servidor.
+          Registro de auditoría (RNF-14): autoría en campo vs hora de recepción sincronizada en el servidor.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -39,27 +39,38 @@ export function EvidenceTraceTable({ rows }: { rows: EvidenceTraceRow[] }) {
           <TableHeader>
             <TableRow>
               <TableHead>Supervisor</TableHead>
-              <TableHead>De</TableHead>
-              <TableHead>En campo</TableHead>
-              <TableHead>Recibida</TableHead>
-              <TableHead>Foto</TableHead>
+              <TableHead>Origen</TableHead>
+              <TableHead>Hora en campo</TableHead>
+              <TableHead>Hora de recepción</TableHead>
+              <TableHead className="text-right">Evidencia</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5}>Todavía no llega ninguna foto.</TableCell>
+                <TableCell colSpan={5} className="py-6 text-center text-zinc-500">
+                  No se registran evidencias fotográficas sincronizadas.
+                </TableCell>
               </TableRow>
             ) : (
-              rows.map((row) => (
+              rows.slice(0, 30).map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.authorName}</TableCell>
-                  <TableCell>{ownerLabel[row.ownerType]}</TableCell>
-                  <TableCell>{formatWhen(row.clientCreatedAt)}</TableCell>
-                  <TableCell>{formatWhen(row.receivedAt)}</TableCell>
+                  <TableCell className="font-medium text-zinc-900">{row.authorName}</TableCell>
                   <TableCell>
-                    <a href={row.url} className="text-sm underline">
-                      Ver
+                    <span className="inline-flex items-center rounded-md bg-zinc-100 px-2 py-0.5 text-xs font-medium text-zinc-800">
+                      {ownerLabel[row.ownerType]}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-zinc-600">{formatWhen(row.clientCreatedAt)}</TableCell>
+                  <TableCell className="text-zinc-600">{formatWhen(row.receivedAt)}</TableCell>
+                  <TableCell className="text-right">
+                    <a
+                      href={row.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-800 hover:bg-zinc-200 transition-colors"
+                    >
+                      Ver foto
                     </a>
                   </TableCell>
                 </TableRow>

@@ -8,15 +8,22 @@ export interface KpiItem {
 
 export function KpiCards({ items }: { items: KpiItem[] }) {
   return (
-    <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
       {items.map((kpi) => (
-        <Card key={kpi.label}>
-          <CardHeader>
-            <CardDescription>{kpi.label}</CardDescription>
-            <CardTitle className="text-3xl">{kpi.value}</CardTitle>
+        <Card
+          key={kpi.label}
+          className="transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <CardHeader className="pb-2">
+            <CardDescription className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+              {kpi.label}
+            </CardDescription>
+            <CardTitle className="text-2xl font-bold tracking-tight text-zinc-900">
+              {kpi.value}
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <p className="text-sm text-zinc-500">{kpi.hint}</p>
+          <CardContent className="pt-0">
+            <p className="text-xs text-zinc-500 leading-relaxed">{kpi.hint}</p>
           </CardContent>
         </Card>
       ))}

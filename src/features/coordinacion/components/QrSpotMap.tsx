@@ -1,10 +1,25 @@
 "use client";
 
-import * as maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
 
-import { circlePolygon, MAP_STYLE } from "@/features/coordinacion/components/mapStyle";
+function createSpotIcon() {
+  return L.divIcon({
+    className: "custom-qr-pin",
+    html: `<div style="
+      width: 16px;
+      height: 16px;
+      border-radius: 9999px;
+      background-color: #ea580c;
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
+    "></div>`,
+    iconSize: [16, 16],
+    iconAnchor: [8, 8],
+    popupAnchor: [0, -8],
+  });
+}
 
 export function QrSpotMap({
   lat,
@@ -18,63 +33,63 @@ export function QrSpotMap({
   label: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
-      return;
+    if (!container) return;
+
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
     }
 
-    const map = new maplibregl.Map({
-      container,
-      style: MAP_STYLE,
-      center: [lng, lat],
+    const map = L.map(container, {
+      center: [lat, lng],
       zoom: 17,
+      zoomControl: true,
     });
+    mapInstanceRef.current = map;
 
-    let marker: maplibregl.Marker | null = null;
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 19,
+    }).addTo(map);
 
-    map.on("load", () => {
-      map.addSource("radius", {
-        type: "geojson",
-        data: circlePolygon(lng, lat, radiusMeters),
-      });
-      map.addLayer({
-        id: "radius-fill",
-        type: "fill",
-        source: "radius",
-        paint: { "fill-color": "#fb923c", "fill-opacity": 0.25 },
-      });
-      map.addLayer({
-        id: "radius-line",
-        type: "line",
-        source: "radius",
-        paint: { "line-color": "#c2410c", "line-width": 2 },
-      });
+    // Radio de geocerca
+    L.circle([lat, lng], {
+      radius: radiusMeters,
+      color: "#c2410c",
+      fillColor: "#fb923c",
+      fillOpacity: 0.25,
+      weight: 2,
+    }).addTo(map);
 
-      const element = document.createElement("div");
-      element.style.width = "16px";
-      element.style.height = "16px";
-      element.style.borderRadius = "9999px";
-      element.style.background = "#fb923c";
-      element.style.border = "2px solid #9a3412";
-      marker = new maplibregl.Marker({ element })
-        .setLngLat([lng, lat])
-        .setPopup(new maplibregl.Popup({ offset: 12, closeButton: false }).setText(label))
-        .addTo(map);
-      marker.togglePopup();
-    });
+    // Marcador central
+    L.marker([lat, lng], { icon: createSpotIcon() })
+      .bindPopup(
+        `<div style="font-family: sans-serif; font-size: 12px;">
+          <strong style="color: #c2410c;">📍 ${label}</strong><br/>
+          <span>Radio de tolerancia: ${radiusMeters} m</span>
+        </div>`,
+      )
+      .addTo(map);
+
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
 
     return () => {
-      marker?.remove();
       map.remove();
+      mapInstanceRef.current = null;
     };
   }, [lat, lng, radiusMeters, label]);
 
   return (
     <div
       ref={containerRef}
-      className="h-64 w-full overflow-hidden rounded-xl border border-zinc-200"
+      className="h-64 w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-xs z-0"
     />
   );
 }

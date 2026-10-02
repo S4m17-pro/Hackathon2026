@@ -1,12 +1,8 @@
 "use client";
 
-import * as maplibregl from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { useEffect, useRef } from "react";
-
-import { MAP_STYLE } from "@/features/coordinacion/components/mapStyle";
-
-const BOGOTA = { lng: -74.0681, lat: 4.6784 };
 
 export interface MapCostCenter {
   id: string;
@@ -68,15 +64,22 @@ function withFallback(
   return { centers: validCenters, supervisors: validSupervisors, scans: validScans, simulated: false };
 }
 
-function dot(color: string, size: number) {
-  const element = document.createElement("div");
-  element.style.width = `${size}px`;
-  element.style.height = `${size}px`;
-  element.style.borderRadius = "9999px";
-  element.style.background = color;
-  element.style.border = "2px solid #fff";
-  element.style.boxShadow = "0 0 0 1px rgba(0,0,0,0.35)";
-  return element;
+function createPinIcon(color: string, size: number, border = "#ffffff") {
+  return L.divIcon({
+    className: "custom-map-pin",
+    html: `<div style="
+      width: ${size}px;
+      height: ${size}px;
+      border-radius: 9999px;
+      background-color: ${color};
+      border: 2.5px solid ${border};
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+      transition: transform 0.15s ease;
+    "></div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
+  });
 }
 
 export function SupervisorsMap({
@@ -90,79 +93,89 @@ export function SupervisorsMap({
 }) {
   const shown = withFallback(centers, supervisors, scans);
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
-      return;
+    if (!container) return;
+
+    // Destroy previous instance if any
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.remove();
+      mapInstanceRef.current = null;
     }
 
     const points = withFallback(centers, supervisors, scans);
-    const map = new maplibregl.Map({
-      container,
-      style: MAP_STYLE,
-      center: [BOGOTA.lng, BOGOTA.lat],
+    const map = L.map(container, {
+      center: [4.6784, -74.0681],
       zoom: 12,
+      zoomControl: true,
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-left");
+    mapInstanceRef.current = map;
 
-    const markers: maplibregl.Marker[] = [];
+    // High quality Voyager / OSM raster tiles
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 19,
+    }).addTo(map);
 
-    map.on("load", () => {
-      const bounds = new maplibregl.LngLatBounds();
-      let count = 0;
+    const latLngs: L.LatLngExpression[] = [];
 
-      const place = (lng: number, lat: number) => {
-        bounds.extend([lng, lat]);
-        count += 1;
-      };
+    // Centros de costo (Azul)
+    const centerIcon = createPinIcon("#1a73e8", 20);
+    for (const center of points.centers) {
+      latLngs.push([center.lat, center.lng]);
+      L.marker([center.lat, center.lng], { icon: centerIcon })
+        .bindPopup(
+          `<div style="font-family: sans-serif; font-size: 13px;">
+            <strong style="color: #1a73e8;">🏢 ${center.name}</strong><br/>
+            <span style="color: #666; font-size: 11px;">Centro de Costo (${center.lat.toFixed(4)}, ${center.lng.toFixed(4)})</span>
+          </div>`,
+        )
+        .addTo(map);
+    }
 
-      for (const center of points.centers) {
-        place(center.lng, center.lat);
-        const marker = new maplibregl.Marker({ element: dot("#1a73e8", 18) })
-          .setLngLat([center.lng, center.lat])
-          .setPopup(
-            new maplibregl.Popup({ offset: 16 }).setText(
-              `${center.name} · ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`,
-            ),
-          )
-          .addTo(map);
-        markers.push(marker);
-      }
+    // Supervisores en campo (Rojo)
+    const supervisorIcon = createPinIcon("#ea4335", 18);
+    for (const person of points.supervisors) {
+      latLngs.push([person.lat, person.lng]);
+      L.marker([person.lat, person.lng], { icon: supervisorIcon })
+        .bindPopup(
+          `<div style="font-family: sans-serif; font-size: 13px;">
+            <strong style="color: #ea4335;">👤 ${person.name}</strong><br/>
+            <span style="color: #444;">Último check-in: <strong>${person.checkInLabel}</strong></span>
+          </div>`,
+        )
+        .addTo(map);
+    }
 
-      for (const person of points.supervisors) {
-        place(person.lng, person.lat);
-        const marker = new maplibregl.Marker({ element: dot("#ea4335", 16) })
-          .setLngLat([person.lng, person.lat])
-          .setPopup(
-            new maplibregl.Popup({ offset: 16 }).setText(
-              `${person.name} · último check-in ${person.checkInLabel}`,
-            ),
-          )
-          .addTo(map);
-        markers.push(marker);
-      }
+    // Puntos QR (Ámbar)
+    const qrIcon = createPinIcon("#f9ab00", 14);
+    for (const scan of points.scans) {
+      latLngs.push([scan.lat, scan.lng]);
+      L.marker([scan.lat, scan.lng], { icon: qrIcon })
+        .bindPopup(
+          `<div style="font-family: sans-serif; font-size: 12px;">
+            <strong style="color: #b06000;">🏷️ ${scan.label}</strong>
+          </div>`,
+        )
+        .addTo(map);
+    }
 
-      for (const scan of points.scans) {
-        place(scan.lng, scan.lat);
-        const marker = new maplibregl.Marker({ element: dot("#f9ab00", 14) })
-          .setLngLat([scan.lng, scan.lat])
-          .setPopup(new maplibregl.Popup({ offset: 16 }).setText(scan.label))
-          .addTo(map);
-        markers.push(marker);
-      }
+    if (latLngs.length > 0) {
+      const bounds = L.latLngBounds(latLngs);
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+    }
 
-      if (count === 1) {
-        map.setCenter(bounds.getCenter());
-        map.setZoom(15);
-      } else if (count > 1) {
-        map.fitBounds(bounds, { padding: 60, maxZoom: 15 });
-      }
-    });
+    // Trigger map invalidation to ensure full render
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
 
     return () => {
-      markers.forEach((marker) => marker.remove());
       map.remove();
+      mapInstanceRef.current = null;
     };
   }, [centers, supervisors, scans]);
 
@@ -170,20 +183,20 @@ export function SupervisorsMap({
     <section className="flex flex-col gap-3">
       <div
         ref={containerRef}
-        className="h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200"
+        className="h-[32rem] w-full overflow-hidden rounded-2xl border border-zinc-200 shadow-xs z-0"
       />
       <div className="flex flex-wrap items-center justify-between gap-4 text-sm text-zinc-600">
         <div className="flex flex-wrap items-center gap-4">
           <span className="flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-[#1a73e8]" />
+            <span className="size-3 rounded-full bg-[#1a73e8] border border-white shadow-xs" />
             Centros de costo ({shown.centers.length})
           </span>
           <span className="flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-[#ea4335]" />
+            <span className="size-3 rounded-full bg-[#ea4335] border border-white shadow-xs" />
             Supervisores en campo ({shown.supervisors.length})
           </span>
           <span className="flex items-center gap-2">
-            <span className="size-2.5 rounded-full bg-[#f9ab00]" />
+            <span className="size-3 rounded-full bg-[#f9ab00] border border-white shadow-xs" />
             Puntos QR ({shown.scans.length})
           </span>
         </div>
